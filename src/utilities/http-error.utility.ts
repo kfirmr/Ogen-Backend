@@ -1,6 +1,6 @@
 import { isString } from 'class-validator';
-import { HttpException } from '@nestjs/common';
 import { isObject } from './object.utility';
+import { HttpException } from '@nestjs/common';
 
 type TSafeResponse = Record<string, unknown>;
 

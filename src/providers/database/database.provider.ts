@@ -1,7 +1,17 @@
 import { Provider } from '@nestjs/common';
 import { ProviderNames } from './provider-names';
+import { User } from '@Modules/user/entities/user.entity';
+import { Level } from '@Modules/level/entities/level.entity';
+import { Alert } from '@Modules/alert/entities/alert.entity';
+import { Vendor } from '@Modules/vendor/entities/vendor.entity';
 import { Sequelize, SequelizeOptions } from 'sequelize-typescript';
+import { XpEvent } from '@Modules/xp-event/entities/xp-event.entity';
+import { XpAction } from '@Modules/xp-action/entities/xp-action.entity';
+import { Transaction } from '@Modules/transaction/entities/transaction.entity';
 import { EnvironmentManager } from '../../utilities/environment-manager.utility';
+import { VendorAlias } from '@Modules/vendor-alias/entities/vendor-alias.entity';
+import { Subscription } from '@Modules/subscription/entities/subscription.entity';
+import { StatementImport } from '@Modules/statement-import/entities/statement-import.entity';
 
 export const DatabaseProvider: Provider = {
   provide: ProviderNames.SEQUELIZE,
@@ -12,10 +22,12 @@ export const DatabaseProvider: Provider = {
       errorOnMissing: true,
     });
     const dbHost = EnvironmentManager.get('DB_HOST', { errorOnMissing: true });
+    const dbPort = EnvironmentManager.get('DB_PORT', { defaultValue: '5432' });
     const useSSL = EnvironmentManager.get('DB_SSL') === 'true';
 
     const config: SequelizeOptions = {
       host: dbHost,
+      port: Number(dbPort),
       database: dbName,
       username: dbUser,
       password: dbPassword,
@@ -44,7 +56,18 @@ export const DatabaseProvider: Provider = {
 
     const sequelize = new Sequelize(config);
 
-    sequelize.addModels([]);
+    sequelize.addModels([
+      User,
+      Level,
+      Alert,
+      Vendor,
+      XpAction,
+      XpEvent,
+      VendorAlias,
+      Transaction,
+      Subscription,
+      StatementImport,
+    ]);
 
     sequelize
       .sync()

@@ -1,2 +1,3 @@
+export const ANONYMOUS_CALLER = 'anonymous';
 export const DEFAULT_RATE_LIMIT_MAX_REQUESTS = 100;
 export const DEFAULT_RATE_LIMIT_REFRESH_TIME = 60_000;

@@ -55,6 +55,8 @@ Table users {
   email varchar(255) [not null, note: 'Unique among non-deleted users only']
   password_hash varchar(255) [not null]
   full_name varchar(255) [not null]
+  total_xp integer [not null, default: 0, note: 'Cached sum of xp_events.xp_awarded for this user']
+  current_level integer [not null, default: 1, ref: > levels.level_number]
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz [not null, default: `now()`]
   deleted_at timestamptz [null, note: 'Soft delete']
@@ -62,6 +64,7 @@ Table users {
   indexes {
     email [unique, name: 'idx_users_email', note: 'Partial: WHERE deleted_at IS NULL, so a deleted account frees its email']
     deleted_at [name: 'idx_users_deleted_at']
+    current_level [name: 'idx_users_current_level']
   }
 }
 
@@ -169,4 +172,52 @@ Table alerts {
     (user_id, status) [name: 'idx_alerts_user_status']
     (user_id, subscription_id, type) [unique, name: 'idx_alerts_unread_dedupe', note: 'Partial: WHERE status is UNREAD, so re-running detection cannot stack duplicate unread alerts']
   }
+}
+
+Table levels {
+  id uuid [pk, default: `gen_random_uuid()`]
+  level_number integer [not null, unique, note: 'Natural key; users.current_level references this column']
+  xp_required integer [not null, note: 'Cumulative total_xp needed to reach this level']
+  title varchar(255) [not null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    level_number [unique, name: 'idx_levels_level_number']
+    xp_required [name: 'idx_levels_xp_required']
+  }
+
+  Note: 'Fully configurable level ladder; editable with no deploy.'
+}
+
+Table xp_actions {
+  id uuid [pk, default: `gen_random_uuid()`]
+  key varchar(255) [not null, unique, note: 'Free-form action code, not a Postgres enum, so new actions need no migration']
+  xp_value integer [not null]
+  description text [not null]
+  is_active boolean [not null, default: true]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    key [unique, name: 'idx_xp_actions_key']
+  }
+
+  Note: 'DB-driven catalog of XP-earning actions and their current award amounts.'
+}
+
+Table xp_events {
+  id uuid [pk, default: `gen_random_uuid()`]
+  user_id uuid [not null, ref: > users.id]
+  xp_action_id uuid [not null, ref: > xp_actions.id]
+  xp_awarded integer [not null, note: 'Snapshot of xp_actions.xp_value at grant time; unaffected by later catalog edits']
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (user_id, created_at) [name: 'idx_xp_events_user_created']
+    xp_action_id [name: 'idx_xp_events_action']
+  }
+
+  Note: 'Append-only log of every XP grant actually made to a user.'
 }

@@ -15,7 +15,13 @@
     "sourceMap": true,
     "outDir": "./dist",
     "paths": {
+      "@Dto/*": ["./src/dto/*"],
+      "@Guards/*": ["./src/guards/*"],
+      "@Modules/*": ["./src/modules/*"],
       "@Constants/*": ["./src/constants/*"],
+      "@Providers/*": ["./src/providers/*"],
+      "@Utilities/*": ["./src/utilities/*"],
+      "@Decorators/*": ["./src/decorators/*"],
       "@Interfaces/*": ["./src/interfaces/*"]
     },
     "incremental": true,

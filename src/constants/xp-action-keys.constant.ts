@@ -1,0 +1,3 @@
+export const XP_ACTION_KEYS = {
+  SUBSCRIPTION_ADDED: 'SUBSCRIPTION_ADDED',
+} as const;

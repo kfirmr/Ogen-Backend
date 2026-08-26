@@ -71,14 +71,14 @@ export const serialize = (
 
   if (value instanceof Set) {
     seen.add(value);
-    return Array.from(value.values()).map(item =>
+    return Array.from(value.values()).map((item) =>
       serialize(item, seen, depth + 1),
     );
   }
 
   if (Array.isArray(value)) {
     seen.add(value);
-    return value.map(item => serialize(item, seen, depth + 1));
+    return value.map((item) => serialize(item, seen, depth + 1));
   }
 
   if (isObject(value)) {

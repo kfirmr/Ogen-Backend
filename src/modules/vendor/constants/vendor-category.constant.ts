@@ -1,0 +1,11 @@
+export enum TVendorCategory {
+  OTHER = 'OTHER',
+  FITNESS = 'FITNESS',
+  SOFTWARE = 'SOFTWARE',
+  INSURANCE = 'INSURANCE',
+  STREAMING = 'STREAMING',
+  UTILITIES = 'UTILITIES',
+  COMMUNICATION = 'COMMUNICATION',
+}
+
+export const VENDOR_CATEGORY_VALUES = Object.values(TVendorCategory);

@@ -5,10 +5,10 @@ export interface IAuthenticatedRequest<
 > extends Request {
   body: T;
   token?: string;
+  aadRoles?: string[];
   user: {
     id: string;
     email: string;
     name: string;
   };
-  aadRoles?: string[];
 }
