@@ -93,16 +93,11 @@ export class XpEventService {
       transaction,
     );
 
+    const previousLevel = await this.levelService.getLevelForXp(
+      user.totalXp - action.xpValue,
+    );
     const newLevel = await this.levelService.getLevelForXp(user.totalXp);
-    const leveledUp = newLevel.levelNumber !== user.currentLevel;
-
-    if (leveledUp) {
-      await this.userService.setLevel(
-        userId,
-        newLevel.levelNumber,
-        transaction,
-      );
-    }
+    const leveledUp = newLevel.levelNumber !== previousLevel.levelNumber;
 
     return {
       xpEvent,

@@ -31,7 +31,6 @@ const buildUser = (overrides: Partial<User> = {}) =>
   ({
     id: 'a5f0c0de-0000-4000-8000-000000000001',
     totalXp: 10,
-    currentLevel: 1,
     ...overrides,
   }) as User;
 
@@ -55,7 +54,6 @@ describe('XpEventService', () => {
   const buildUserService = (overrides: Partial<UserService>) =>
     ({
       incrementXp: jest.fn(),
-      setLevel: jest.fn(),
       ...overrides,
     }) as unknown as UserService;
 
@@ -75,7 +73,7 @@ describe('XpEventService', () => {
       const sequelize = buildSequelize(transactionFn);
       const xpAction = buildXpAction({ xpValue: 10 });
       const xpEvent = buildXpEvent({ xpAwarded: 10 });
-      const user = buildUser({ totalXp: 10, currentLevel: 1 });
+      const user = buildUser({ totalXp: 10 });
       const level = buildLevel({ levelNumber: 1 });
 
       const incrementXp = jest.fn().mockResolvedValue(user);
@@ -115,23 +113,24 @@ describe('XpEventService', () => {
       );
     });
 
-    it('detects a level-up and updates the user current level', async () => {
+    it('detects a level-up by comparing the level before and after the award', async () => {
       const transaction = buildTransaction();
       const sequelize = buildSequelize(
         jest.fn().mockResolvedValue(transaction),
       );
       const xpAction = buildXpAction({ xpValue: 10 });
-      const user = buildUser({ totalXp: 100, currentLevel: 1 });
+      const user = buildUser({ totalXp: 100 });
+      const previousLevel = buildLevel({ levelNumber: 1 });
       const newLevel = buildLevel({ levelNumber: 2, title: 'On Track' });
 
-      const setLevel = jest.fn().mockResolvedValue(undefined);
+      const getLevelForXp = jest
+        .fn()
+        .mockResolvedValueOnce(previousLevel)
+        .mockResolvedValueOnce(newLevel);
       const userService = buildUserService({
         incrementXp: jest.fn().mockResolvedValue(user),
-        setLevel,
       });
-      const levelService = buildLevelService({
-        getLevelForXp: jest.fn().mockResolvedValue(newLevel),
-      });
+      const levelService = buildLevelService({ getLevelForXp });
       const xpActionService = buildXpActionService({
         getActiveByKey: jest.fn().mockResolvedValue(xpAction),
       });
@@ -149,8 +148,10 @@ describe('XpEventService', () => {
 
       const result = await service.award('user-1', 'SUBSCRIPTION_ADDED');
 
-      expect(setLevel).toHaveBeenCalledWith('user-1', 2, transaction);
+      expect(getLevelForXp).toHaveBeenNthCalledWith(1, 90);
+      expect(getLevelForXp).toHaveBeenNthCalledWith(2, 100);
       expect(result?.leveledUp).toBe(true);
+      expect(result?.currentLevel).toBe(2);
     });
 
     it('no-ops without throwing for an unknown or inactive action key', async () => {

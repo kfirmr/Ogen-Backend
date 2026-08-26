@@ -42,15 +42,4 @@ export class UserRepository {
 
     return User.findByPk(id, { transaction, rejectOnEmpty: true });
   }
-
-  public updateCurrentLevel(
-    id: string,
-    levelNumber: number,
-    transaction?: Transaction,
-  ): Promise<[number]> {
-    return User.update(
-      { currentLevel: levelNumber },
-      { where: { id }, transaction },
-    );
-  }
 }

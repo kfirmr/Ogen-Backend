@@ -18,7 +18,6 @@ const buildUser = (overrides: Partial<User> = {}) =>
   ({
     id: 'a5f0c0de-0000-4000-8000-000000000001',
     totalXp: 50,
-    currentLevel: 1,
     ...overrides,
   }) as User;
 
@@ -60,7 +59,7 @@ describe('LevelService', () => {
 
   describe('getUserProgress', () => {
     it('composes current and next level details for the user', async () => {
-      const user = buildUser({ totalXp: 150, currentLevel: 2 });
+      const user = buildUser({ totalXp: 150 });
       const currentLevel = buildLevel({
         levelNumber: 2,
         xpRequired: 100,
@@ -97,7 +96,7 @@ describe('LevelService', () => {
     });
 
     it('reports zero xp to next level once the user is at the top level', async () => {
-      const user = buildUser({ totalXp: 2000, currentLevel: 5 });
+      const user = buildUser({ totalXp: 2000 });
       const currentLevel = buildLevel({
         levelNumber: 5,
         xpRequired: 1500,

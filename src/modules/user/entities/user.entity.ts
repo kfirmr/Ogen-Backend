@@ -26,7 +26,6 @@ import { IUser, TCreateUser } from '../interfaces/user.interface';
       where: { deleted_at: null },
     },
     { name: 'idx_users_deleted_at', fields: ['deleted_at'] },
-    { name: 'idx_users_current_level', fields: ['current_level'] },
   ],
 })
 export class User extends Model<IUser, TCreateUser> implements IUser {
@@ -51,11 +50,6 @@ export class User extends Model<IUser, TCreateUser> implements IUser {
   @Default(0)
   @Column({ type: DataType.INTEGER })
   declare totalXp: number;
-
-  @AllowNull(false)
-  @Default(1)
-  @Column({ type: DataType.INTEGER })
-  declare currentLevel: number;
 
   @CreatedAt
   declare createdAt: Date;

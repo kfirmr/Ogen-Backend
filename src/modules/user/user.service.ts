@@ -90,18 +90,6 @@ export class UserService {
     return this.userRepository.incrementTotalXp(userId, amount, transaction);
   }
 
-  public async setLevel(
-    userId: string,
-    levelNumber: number,
-    transaction?: Transaction,
-  ): Promise<void> {
-    await this.userRepository.updateCurrentLevel(
-      userId,
-      levelNumber,
-      transaction,
-    );
-  }
-
   private async assertEmailIsAvailable(
     id: string,
     email: string,
