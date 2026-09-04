@@ -32,3 +32,15 @@ export type TCreateTransaction = Optional<
   | 'externalId'
   | 'subscriptionId'
 >;
+
+export type TCreateTransactionForImport = Pick<
+  TCreateTransaction,
+  | 'amount'
+  | 'currency'
+  | 'vendorId'
+  | 'importId'
+  | 'externalId'
+  | 'subscriptionId'
+  | 'transactionDate'
+  | 'originalDescription'
+>;

@@ -18,6 +18,7 @@ export const IMPORT_STATUS_PATCH_BY_STATUS: Record<
   }),
   [TImportStatus.COMPLETED]: (data) => ({
     completedAt: new Date(),
+    errorMessage: data.errorMessage ?? null,
     transactionCount: data.transactionCount ?? 0,
   }),
 };

@@ -34,7 +34,7 @@ import { StatementImport } from '@Modules/statement-import/entities/statement-im
       name: 'idx_transactions_external_id',
       unique: true,
       fields: ['user_id', 'external_id'],
-      where: { external_id: { [Op.ne]: null } },
+      where: { external_id: { [Op.ne]: null }, deleted_at: null },
     },
     {
       name: 'idx_transactions_user_date',

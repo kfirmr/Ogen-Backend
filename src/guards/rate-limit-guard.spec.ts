@@ -1,6 +1,7 @@
 import { Reflector } from '@nestjs/core';
 import { RateLimitGuard } from './rate-limit-guard';
-import { type ExecutionContext } from '@nestjs/common';
+import { METADATA_KEYS } from '@Constants/metadata-keys';
+import { HttpException, type ExecutionContext } from '@nestjs/common';
 import { type IAuthenticatedRequest } from '@Interfaces/authenticated-request.interface';
 
 const buildContext = (request: Partial<IAuthenticatedRequest>) =>
@@ -10,9 +11,19 @@ const buildContext = (request: Partial<IAuthenticatedRequest>) =>
     switchToHttp: () => ({ getRequest: () => request }),
   }) as unknown as ExecutionContext;
 
-const buildGuard = (maxRequests?: number) => {
+const buildGuard = (maxRequests?: number, windowMs: number | null = null) => {
   const reflector = {
-    get: jest.fn().mockReturnValue(maxRequests),
+    get: jest.fn((key: string) => {
+      if (key === METADATA_KEYS.MAX_REQUESTS) {
+        return maxRequests;
+      }
+
+      if (key === METADATA_KEYS.MAX_REQUESTS_WINDOW_MS) {
+        return windowMs;
+      }
+
+      return undefined;
+    }),
   } as unknown as Reflector;
 
   return new RateLimitGuard(reflector);
@@ -35,9 +46,10 @@ describe('RateLimitGuard', () => {
       originalUrl: '/auth/login',
     });
 
-    const results = [1, 2, 3, 4].map(() => guard.canActivate(context));
-
-    expect(results).toEqual([true, true, true, false]);
+    expect(guard.canActivate(context)).toBe(true);
+    expect(guard.canActivate(context)).toBe(true);
+    expect(guard.canActivate(context)).toBe(true);
+    expect(() => guard.canActivate(context)).toThrow(HttpException);
   });
 
   it('counts each route separately', () => {
@@ -53,7 +65,7 @@ describe('RateLimitGuard', () => {
 
     expect(guard.canActivate(login)).toBe(true);
     expect(guard.canActivate(signUp)).toBe(true);
-    expect(guard.canActivate(login)).toBe(false);
+    expect(() => guard.canActivate(login)).toThrow(HttpException);
   });
 
   it('counts an authenticated caller by user rather than address', () => {
@@ -71,6 +83,19 @@ describe('RateLimitGuard', () => {
 
     expect(guard.canActivate(first)).toBe(true);
     expect(guard.canActivate(second)).toBe(true);
-    expect(guard.canActivate(first)).toBe(false);
+    expect(() => guard.canActivate(first)).toThrow(HttpException);
+  });
+
+  it('honors a handler-specific window instead of the global default', () => {
+    const guard = buildGuard(1, -1);
+    const context = buildContext({
+      ip: '10.0.0.5',
+      originalUrl: '/statement-import/upload',
+    });
+
+    expect(guard.canActivate(context)).toBe(true);
+    expect(guard.canActivate(context)).toBe(true);
+    expect(guard.canActivate(context)).toBe(true);
   });
 });
+

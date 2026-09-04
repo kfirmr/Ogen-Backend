@@ -9,8 +9,11 @@ export class VendorAliasRepository {
     return VendorAlias.findByPk(id);
   }
 
-  public findByPattern(pattern: string): Promise<VendorAlias | null> {
-    return VendorAlias.findOne({ where: { pattern } });
+  public findByPattern(
+    pattern: string,
+    transaction?: Transaction,
+  ): Promise<VendorAlias | null> {
+    return VendorAlias.findOne({ where: { pattern }, transaction });
   }
 
   public getByVendor(vendorId: string): Promise<VendorAlias[]> {

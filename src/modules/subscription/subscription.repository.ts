@@ -15,6 +15,9 @@ import { IBatchResult } from '@Interfaces/batch.interface';
 import { Subscription } from './entities/subscription.entity';
 import { Vendor } from '@Modules/vendor/entities/vendor.entity';
 import { GetSubscriptionsDto } from './dto/get-subscriptions.dto';
+import { TBillingCycle } from './constants/billing-cycle.constant';
+import { TServiceType } from '@Modules/vendor/constants/service-type.constant';
+import { TSubscriptionStatus } from './constants/subscription-status.constant';
 
 @Injectable()
 export class SubscriptionRepository {
@@ -43,6 +46,48 @@ export class SubscriptionRepository {
     });
 
     return { items, nextCursor: buildNextCursor(items, batchSize) };
+  }
+
+  public findFirstActiveByVendor(
+    userId: string,
+    vendorId: string,
+    transaction?: Transaction,
+  ): Promise<Subscription | null> {
+    return Subscription.findOne({
+      where: { userId, vendorId, status: TSubscriptionStatus.ACTIVE },
+      transaction,
+    });
+  }
+
+  public getActiveByServiceType(
+    userId: string,
+    serviceType: TServiceType,
+    transaction?: Transaction,
+  ): Promise<Subscription[]> {
+    return Subscription.findAll({
+      where: { userId, status: TSubscriptionStatus.ACTIVE },
+      include: [{ model: Vendor, required: true, where: { serviceType } }],
+      transaction,
+    });
+  }
+
+  public findActiveMatch(
+    userId: string,
+    vendorId: string,
+    amount: string,
+    billingCycle: TBillingCycle,
+    transaction?: Transaction,
+  ): Promise<Subscription | null> {
+    return Subscription.findOne({
+      where: {
+        userId,
+        vendorId,
+        amount,
+        billingCycle,
+        status: TSubscriptionStatus.ACTIVE,
+      },
+      transaction,
+    });
   }
 
   public create(

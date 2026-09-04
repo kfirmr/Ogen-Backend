@@ -12,9 +12,19 @@ import {
 } from 'sequelize-typescript';
 
 import {
+  TServiceType,
+  SERVICE_TYPE_VALUES,
+} from '../constants/service-type.constant';
+
+import {
   TVendorCategory,
   VENDOR_CATEGORY_VALUES,
 } from '../constants/vendor-category.constant';
+
+import {
+  TBillingCycle,
+  BILLING_CYCLE_VALUES,
+} from '@Modules/subscription/constants/billing-cycle.constant';
 
 import { DATA_LENGTHS } from '@Constants/data-length';
 import { DEFAULT_CURRENCY, MONEY_PRECISION } from '@Constants/money';
@@ -50,6 +60,18 @@ export class Vendor extends Model<IVendor, TCreateVendor> implements IVendor {
   @AllowNull(true)
   @Column({ type: DataType.ENUM, values: VENDOR_CATEGORY_VALUES })
   declare category: TVendorCategory | null;
+
+  @AllowNull(true)
+  @Column({ type: DataType.ENUM, values: SERVICE_TYPE_VALUES })
+  declare serviceType: TServiceType | null;
+
+  @AllowNull(true)
+  @Column({ type: DataType.BOOLEAN })
+  declare isLikelySubscription: boolean | null;
+
+  @AllowNull(true)
+  @Column({ type: DataType.ENUM, values: BILLING_CYCLE_VALUES })
+  declare billingCycle: TBillingCycle | null;
 
   @CreatedAt
   declare createdAt: Date;

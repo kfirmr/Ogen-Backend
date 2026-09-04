@@ -1,3 +1,8 @@
+import {
+  ISpendingBaseline,
+  computeSpendingBaseline,
+} from './utilities/spending-baseline.utility';
+
 import { TypedLogger } from '../../logger/logger.service';
 import { IBatchResult } from '@Interfaces/batch.interface';
 import { Transaction } from './entities/transaction.entity';
@@ -9,6 +14,7 @@ import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { AttachSubscriptionDto } from './dto/attach-subscription.dto';
 import { VendorAliasService } from '@Modules/vendor-alias/vendor-alias.service';
 import { SubscriptionService } from '@Modules/subscription/subscription.service';
+import { TCreateTransactionForImport } from './interfaces/transaction.interface';
 
 @Injectable()
 export class TransactionService {
@@ -60,6 +66,97 @@ export class TransactionService {
 
       throw error;
     }
+  }
+
+  public async isDuplicate(
+    userId: string,
+    transactionDate: string,
+    amount: string,
+  ): Promise<boolean> {
+    const duplicate = await this.transactionRepository.findDuplicateForImport(
+      userId,
+      transactionDate,
+      amount,
+    );
+
+    return duplicate != null;
+  }
+
+  public async getAverageAmountForVendor(
+    userId: string,
+    vendorId: string,
+  ): Promise<ISpendingBaseline> {
+    const amounts = await this.transactionRepository.getAmountsForVendor(
+      userId,
+      vendorId,
+    );
+
+    return computeSpendingBaseline(amounts);
+  }
+
+  public async getAverageAmountForUser(
+    userId: string,
+  ): Promise<ISpendingBaseline> {
+    const amounts = await this.transactionRepository.getAmountsForUser(userId);
+
+    return computeSpendingBaseline(amounts);
+  }
+
+  public async createForImport(
+    userId: string,
+    data: TCreateTransactionForImport,
+    transaction?: SequelizeTransaction,
+  ): Promise<Transaction> {
+    try {
+      return await this.transactionRepository.create(
+        { ...data, userId },
+        transaction,
+      );
+    } catch (error) {
+      this.logger.error({
+        message: 'Failed to create transaction for import',
+        error,
+      });
+
+      throw error;
+    }
+  }
+
+  public async bulkCreateForImport(
+    userId: string,
+    rows: TCreateTransactionForImport[],
+    transaction?: SequelizeTransaction,
+  ): Promise<Transaction[]> {
+    try {
+      return await this.transactionRepository.bulkCreateForImport(
+        rows.map((row) => ({ ...row, userId })),
+        transaction,
+      );
+    } catch (error) {
+      this.logger.error({
+        message: 'Failed to bulk create transactions for import',
+        error,
+      });
+
+      throw error;
+    }
+  }
+
+  public async findExistingExternalIds(
+    userId: string,
+    externalIds: string[],
+  ): Promise<Set<string>> {
+    if (externalIds.length === 0) {
+      return new Set();
+    }
+
+    const existingExternalIds =
+      await this.transactionRepository.findExistingExternalIds(
+        userId,
+        externalIds,
+      );
+
+    return new Set(existingExternalIds);
   }
 
   public async attachSubscription(
