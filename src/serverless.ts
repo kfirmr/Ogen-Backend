@@ -1,3 +1,5 @@
+import 'pg';
+import 'pg-hstore';
 import { Express } from 'express';
 import { AppModule } from './app.module';
 import { NestFactory } from '@nestjs/core';
