@@ -9,12 +9,18 @@ export class VendorRepository {
     return Vendor.findAll({ order: [['name', 'ASC']] });
   }
 
-  public findById(id: string): Promise<Vendor | null> {
-    return Vendor.findByPk(id);
+  public findById(
+    id: string,
+    transaction?: Transaction,
+  ): Promise<Vendor | null> {
+    return Vendor.findByPk(id, { transaction });
   }
 
-  public findByName(name: string): Promise<Vendor | null> {
-    return Vendor.findOne({ where: { name } });
+  public findByName(
+    name: string,
+    transaction?: Transaction,
+  ): Promise<Vendor | null> {
+    return Vendor.findOne({ where: { name }, transaction });
   }
 
   public create(

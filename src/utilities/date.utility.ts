@@ -1,5 +1,11 @@
+import {
+  TIME_ZONE,
+  TIME_UNITS,
+  DATE_FORMATS,
+  TIME_UNITS_TEXT,
+} from '@Constants/date';
+
 import moment from 'moment-timezone';
-import { DATE_FORMATS, TIME_UNITS_TEXT, TIME_ZONE } from '@Constants/date';
 
 export const getStartOfToday = (): Date => {
   const today = new Date();
@@ -46,4 +52,22 @@ export const formatDate = (
   }
 
   return moment(date).tz(TIME_ZONE).format(format);
+};
+
+export const describeDurationMs = (durationMs: number): string => {
+  const totalMinutes = Math.round(durationMs / TIME_UNITS.MINUTES);
+
+  if (totalMinutes < 60) {
+    return `${totalMinutes} ${totalMinutes === 1 ? 'minute' : 'minutes'}`;
+  }
+
+  const totalHours = Math.round(durationMs / TIME_UNITS.HOURS);
+
+  if (totalHours < 24) {
+    return `${totalHours} ${totalHours === 1 ? 'hour' : 'hours'}`;
+  }
+
+  const totalDays = Math.round(durationMs / TIME_UNITS.DAYS);
+
+  return `${totalDays} ${totalDays === 1 ? 'day' : 'days'}`;
 };

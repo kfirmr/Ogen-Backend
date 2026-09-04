@@ -1,6 +1,8 @@
 import {
   Logger,
+  HttpStatus,
   Injectable,
+  HttpException,
   CanActivate,
   ExecutionContext,
 } from '@nestjs/common';
@@ -13,6 +15,7 @@ import {
 
 import { Reflector } from '@nestjs/core';
 import { METADATA_KEYS } from '@Constants/metadata-keys';
+import { describeDurationMs } from '@Utilities/date.utility';
 import { IRateLimitRecord } from '@Interfaces/rate-limit.interface';
 import { IAuthenticatedRequest } from '@Interfaces/authenticated-request.interface';
 
@@ -31,9 +34,16 @@ export class RateLimitGuard implements CanActivate {
       this.reflector.get<number>(METADATA_KEYS.MAX_REQUESTS, contextHandler) ||
       DEFAULT_RATE_LIMIT_MAX_REQUESTS;
 
-    const REFRESH_TIME =
+    const HANDLER_WINDOW_MS = this.reflector.get<number | null>(
+      METADATA_KEYS.MAX_REQUESTS_WINDOW_MS,
+      contextHandler,
+    );
+
+    const ENV_REFRESH_TIME =
       Number(process.env.RATE_LIMIT_REFRESH_TIME) ||
       DEFAULT_RATE_LIMIT_REFRESH_TIME;
+
+    const REFRESH_TIME = HANDLER_WINDOW_MS ?? ENV_REFRESH_TIME;
 
     const MAX_REQUESTS_MULTIPLIER =
       Number(process.env.RATE_LIMIT_MAX_REQUESTS_MULTIPLIER) || 1;
@@ -60,6 +70,9 @@ export class RateLimitGuard implements CanActivate {
 
     this.logger.warn(`Rate limit exceeded for session ${sessionId}`);
 
-    return false;
+    throw new HttpException(
+      `Rate limit exceeded: a maximum of ${MAX_REQUESTS} requests is allowed every ${describeDurationMs(REFRESH_TIME)}. Please try again later.`,
+      HttpStatus.TOO_MANY_REQUESTS,
+    );
   }
 }

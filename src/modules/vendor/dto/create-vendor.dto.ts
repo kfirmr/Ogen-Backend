@@ -10,6 +10,7 @@ import {
 
 import { MONEY_REGEX } from '@Constants/money';
 import { DATA_LENGTHS } from '@Constants/data-length';
+import { TServiceType } from '../constants/service-type.constant';
 import { TVendorCategory } from '../constants/vendor-category.constant';
 
 export class CreateVendorDto {
@@ -34,4 +35,8 @@ export class CreateVendorDto {
   @IsOptional()
   @IsEnum(TVendorCategory)
   category?: TVendorCategory;
+
+  @IsOptional()
+  @IsEnum(TServiceType)
+  serviceType?: TServiceType;
 }

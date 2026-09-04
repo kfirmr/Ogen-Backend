@@ -6,6 +6,7 @@ import {
 
 import { VendorAlias } from './entities/vendor-alias.entity';
 import { VendorService } from '@Modules/vendor/vendor.service';
+import { Transaction, UniqueConstraintError } from 'sequelize';
 import { VendorAliasRepository } from './vendor-alias.repository';
 import { CreateVendorAliasDto } from './dto/create-vendor-alias.dto';
 import { normalizeDescription } from './utilities/description.utility';
@@ -36,6 +37,36 @@ export class VendorAliasService {
       pattern,
       vendorId: data.vendorId,
     });
+  }
+
+  public async createIdempotent(
+    description: string,
+    vendorId: string,
+    transaction?: Transaction,
+  ): Promise<string> {
+    const pattern = normalizeDescription(description);
+
+    try {
+      const alias = await this.vendorAliasRepository.create(
+        { pattern, vendorId },
+        transaction,
+      );
+
+      return alias.vendorId;
+    } catch (error) {
+      if (error instanceof UniqueConstraintError) {
+        const existingAlias = await this.vendorAliasRepository.findByPattern(
+          pattern,
+          transaction,
+        );
+
+        if (existingAlias != null) {
+          return existingAlias.vendorId;
+        }
+      }
+
+      throw error;
+    }
   }
 
   public async delete(id: string): Promise<void> {

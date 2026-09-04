@@ -50,11 +50,61 @@ export class TransactionRepository {
     return { items, nextCursor: buildNextCursor(items, batchSize) };
   }
 
+  public findDuplicateForImport(
+    userId: string,
+    transactionDate: string,
+    amount: string,
+  ): Promise<Transaction | null> {
+    return Transaction.findOne({
+      where: { userId, transactionDate, amount },
+    });
+  }
+
+  public async getAmountsForVendor(
+    userId: string,
+    vendorId: string,
+  ): Promise<string[]> {
+    const transactions = await Transaction.findAll({
+      where: { userId, vendorId },
+      attributes: ['amount'],
+    });
+
+    return transactions.map((transaction) => transaction.amount);
+  }
+
+  public async getAmountsForUser(userId: string): Promise<string[]> {
+    const transactions = await Transaction.findAll({
+      where: { userId },
+      attributes: ['amount'],
+    });
+
+    return transactions.map((transaction) => transaction.amount);
+  }
+
+  public async findExistingExternalIds(
+    userId: string,
+    externalIds: string[],
+  ): Promise<string[]> {
+    const transactions = await Transaction.findAll({
+      where: { userId, externalId: { [Op.in]: externalIds } },
+      attributes: ['externalId'],
+    });
+
+    return transactions.map((transaction) => transaction.externalId as string);
+  }
+
   public create(
     data: TCreateTransaction,
     transaction?: SequelizeTransaction,
   ): Promise<Transaction> {
     return Transaction.create(data, { transaction });
+  }
+
+  public bulkCreateForImport(
+    records: TCreateTransaction[],
+    transaction?: SequelizeTransaction,
+  ): Promise<Transaction[]> {
+    return Transaction.bulkCreate(records, { transaction, returning: true });
   }
 
   public update(

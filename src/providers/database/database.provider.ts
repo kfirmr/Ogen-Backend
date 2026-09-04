@@ -2,8 +2,8 @@ import { Provider } from '@nestjs/common';
 import { ProviderNames } from './provider-names';
 import { User } from '@Modules/user/entities/user.entity';
 import { Level } from '@Modules/level/entities/level.entity';
-import { Alert } from '@Modules/alert/entities/alert.entity';
 import { Vendor } from '@Modules/vendor/entities/vendor.entity';
+import { Insight } from '@Modules/insight/entities/insight.entity';
 import { Sequelize, SequelizeOptions } from 'sequelize-typescript';
 import { XpEvent } from '@Modules/xp-event/entities/xp-event.entity';
 import { XpAction } from '@Modules/xp-action/entities/xp-action.entity';
@@ -59,7 +59,7 @@ export const DatabaseProvider: Provider = {
     sequelize.addModels([
       User,
       Level,
-      Alert,
+      Insight,
       Vendor,
       XpAction,
       XpEvent,
