@@ -8,6 +8,10 @@ export class GetTransactionsDto extends BatchQueryDto {
 
   @IsOptional()
   @IsUUID()
+  importId?: string;
+
+  @IsOptional()
+  @IsUUID()
   subscriptionId?: string;
 
   @IsOptional()

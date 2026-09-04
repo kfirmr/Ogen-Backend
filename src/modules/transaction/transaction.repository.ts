@@ -140,6 +140,10 @@ export class TransactionRepository {
       filterConditions.push({ vendorId: data.vendorId });
     }
 
+    if (data.importId != null) {
+      filterConditions.push({ importId: data.importId });
+    }
+
     if (data.subscriptionId != null) {
       filterConditions.push({ subscriptionId: data.subscriptionId });
     }
