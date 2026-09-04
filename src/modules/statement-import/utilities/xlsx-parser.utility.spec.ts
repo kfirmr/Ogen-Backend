@@ -134,7 +134,16 @@ describe('xlsx-parser.utility', () => {
 
     it('strips thousand-separator commas from a formatted billed amount', () => {
       const buffer = buildWorkbookBuffer(HEADERS, [
-        ['2026-01-15', 'BANK TRANSFER', '3000', 'ILS', '3,000.00', 'ILS', '', ''],
+        [
+          '2026-01-15',
+          'BANK TRANSFER',
+          '3000',
+          'ILS',
+          '3,000.00',
+          'ILS',
+          '',
+          '',
+        ],
       ]);
 
       const result = parseTransactionRows(buffer);
@@ -230,6 +239,26 @@ describe('xlsx-parser.utility', () => {
           currency: 'ILS',
           externalId: undefined,
           transactionDate: '2026-08-26',
+          originalDescription: 'NETFLIX.COM',
+        },
+      ]);
+    });
+
+    it('parses a dashed day-month-year date as used by some card statement exports', () => {
+      const buffer = buildWorkbookBuffer(HEADERS, [
+        ['15-07-2026', 'NETFLIX.COM', '13.99', 'USD', '49.90', 'ILS', '', ''],
+      ]);
+
+      const result = parseTransactionRows(buffer);
+
+      expect(result.headerError).toBeNull();
+      expect(result.parseErrors).toEqual([]);
+      expect(result.rows).toEqual([
+        {
+          amount: '49.90',
+          currency: 'ILS',
+          externalId: undefined,
+          transactionDate: '2026-07-15',
           originalDescription: 'NETFLIX.COM',
         },
       ]);

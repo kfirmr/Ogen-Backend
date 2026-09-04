@@ -183,7 +183,7 @@ const normalizeAmount = (rawAmount: unknown): string | null => {
   return amount;
 };
 
-const DOTTED_DATE_REGEX = /^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})$/;
+const DAY_MONTH_YEAR_DATE_REGEX = /^(\d{1,2})[./-](\d{1,2})[./-](\d{2}|\d{4})$/;
 
 const normalizeDate = (rawDate: unknown): string | null => {
   if (typeof rawDate !== 'string' || rawDate.trim() === '') {
@@ -191,10 +191,10 @@ const normalizeDate = (rawDate: unknown): string | null => {
   }
 
   const trimmedDate = rawDate.trim();
-  const dottedMatch = trimmedDate.match(DOTTED_DATE_REGEX);
+  const dayMonthYearMatch = trimmedDate.match(DAY_MONTH_YEAR_DATE_REGEX);
 
-  if (dottedMatch != null) {
-    return normalizeDottedDate(dottedMatch);
+  if (dayMonthYearMatch != null) {
+    return normalizeDayMonthYearDate(dayMonthYearMatch);
   }
 
   const date = new Date(trimmedDate);
@@ -206,10 +206,12 @@ const normalizeDate = (rawDate: unknown): string | null => {
   return date.toISOString().slice(0, 10);
 };
 
-// Israeli card statements commonly use day.month.year (e.g. 26.08.26), which native Date parsing
-// does not recognize; the two-digit year is treated as 20XX.
-const normalizeDottedDate = (dottedMatch: RegExpMatchArray): string | null => {
-  const [, day, month, year] = dottedMatch;
+// Israeli card statements commonly use day.month.year or day-month-year (e.g. 26.08.26,
+// 15-07-2026), which native Date parsing does not recognize; a two-digit year is treated as 20XX.
+const normalizeDayMonthYearDate = (
+  dayMonthYearMatch: RegExpMatchArray,
+): string | null => {
+  const [, day, month, year] = dayMonthYearMatch;
   const fullYear = year.length === 2 ? `20${year}` : year;
   const isoDate = `${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
   const parsedDate = new Date(isoDate);
