@@ -84,6 +84,17 @@ Enum import_status {
   FAILED
 }
 
+Enum draft_action_type {
+  CANCELLATION_EMAIL
+}
+
+Enum draft_action_status {
+  DRAFTED
+  APPROVED
+  REJECTED
+  EXECUTED
+}
+
 Table users {
   id uuid [pk, default: `gen_random_uuid()`]
   email varchar(255) [not null, note: 'Unique among non-deleted users only']
@@ -115,6 +126,7 @@ Table vendors {
 
   indexes {
     service_type [name: 'idx_vendors_service_type']
+    name [type: gin, name: 'idx_vendors_name_trgm', note: 'pg_trgm index backing fuzzy vendor-name matching']
   }
 }
 
@@ -204,13 +216,39 @@ Table insights {
   type insight_type [not null]
   body text [not null]
   status insight_status [not null, default: 'UNREAD']
+  metadata jsonb [not null, default: `'{}'`, note: 'Structured detection facts (vendor, amounts, sibling subscription ids) for the drafting agent to read']
+  estimated_monthly_savings decimal(12,2) [null, note: 'Magnitude of the leak, computed by the SQL detection query']
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz [not null, default: `now()`]
 
   indexes {
     (user_id, status) [name: 'idx_insights_user_status']
-    (user_id, subscription_id, type) [unique, name: 'idx_insights_unread_dedupe', note: 'Partial: WHERE status is UNREAD, so re-running detection cannot stack duplicate unread insights']
+    (user_id, subscription_id, type) [unique, name: 'idx_insights_unread_dedupe_subscription', note: 'Partial: WHERE status is UNREAD AND subscription_id IS NOT NULL']
+    (user_id, transaction_id, type) [unique, name: 'idx_insights_unread_dedupe_transaction', note: 'Partial: WHERE status is UNREAD AND transaction_id IS NOT NULL']
   }
+}
+
+Table draft_actions {
+  id uuid [pk, default: `gen_random_uuid()`]
+  user_id uuid [not null, ref: > users.id]
+  insight_id uuid [not null, ref: > insights.id, note: 'One draft per leak']
+  subscription_id uuid [null, ref: > subscriptions.id]
+  vendor_id uuid [null, ref: > vendors.id]
+  action_type draft_action_type [not null]
+  status draft_action_status [not null, default: 'DRAFTED']
+  target_email varchar(255) [null, note: 'Snapshot of vendor.cancellation_email at draft time']
+  subject varchar(255) [not null]
+  body text [not null]
+  reasoning text [null, note: "The agent's rationale, shown to the user for trust"]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (user_id, status) [name: 'idx_draft_actions_user_status']
+    insight_id [unique, name: 'idx_draft_actions_insight']
+  }
+
+  Note: 'Agent-drafted "Done For You" interventions awaiting user approval. Nothing is ever sent automatically; EXECUTED is reserved for a future send step.'
 }
 
 Table levels {

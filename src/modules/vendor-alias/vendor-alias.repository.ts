@@ -1,4 +1,4 @@
-import { Transaction } from 'sequelize';
+import { Op, Transaction } from 'sequelize';
 import { Injectable } from '@nestjs/common';
 import { VendorAlias } from './entities/vendor-alias.entity';
 import { TCreateVendorAlias } from './interfaces/vendor-alias.interface';
@@ -14,6 +14,14 @@ export class VendorAliasRepository {
     transaction?: Transaction,
   ): Promise<VendorAlias | null> {
     return VendorAlias.findOne({ where: { pattern }, transaction });
+  }
+
+  public findManyByPatterns(patterns: string[]): Promise<VendorAlias[]> {
+    if (patterns.length === 0) {
+      return Promise.resolve([]);
+    }
+
+    return VendorAlias.findAll({ where: { pattern: { [Op.in]: patterns } } });
   }
 
   public getByVendor(vendorId: string): Promise<VendorAlias[]> {

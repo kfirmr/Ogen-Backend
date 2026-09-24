@@ -1,16 +1,28 @@
 import * as XLSX from 'xlsx';
 import { Sequelize } from 'sequelize';
 import { VendorService } from '@Modules/vendor/vendor.service';
-import { InsightService } from '@Modules/insight/insight.service';
 import { StatementImportService } from './statement-import.service';
 import { StatementImportRepository } from './statement-import.repository';
 import { TransactionService } from '@Modules/transaction/transaction.service';
 import { TServiceType } from '@Modules/vendor/constants/service-type.constant';
 import { VendorAliasService } from '@Modules/vendor-alias/vendor-alias.service';
 import { SubscriptionService } from '@Modules/subscription/subscription.service';
+import { LeakResponseService } from '@Modules/leak-response/leak-response.service';
 import { TVendorCategory } from '@Modules/vendor/constants/vendor-category.constant';
 import { TBillingCycle } from '@Modules/subscription/constants/billing-cycle.constant';
+import { normalizeDescription } from '@Modules/vendor-alias/utilities/description.utility';
 import { VendorClassifierService } from '@Modules/vendor-classifier/vendor-classifier.service';
+
+const capturedPipelinePromise: { current: Promise<void> | null } = {
+  current: null,
+};
+const waitUntilMock = jest.fn((promise: Promise<void>) => {
+  capturedPipelinePromise.current = promise;
+});
+
+jest.mock('@vercel/functions', () => ({
+  waitUntil: (promise: Promise<void>) => waitUntilMock(promise),
+}));
 
 const HEADERS = [
   'תאריך רכישה',
@@ -35,7 +47,17 @@ const buildWorkbookBuffer = (rows: unknown[][]): Buffer => {
 const buildFile = (buffer: Buffer) =>
   ({ buffer, originalname: 'statement.xlsx' }) as Express.Multer.File;
 
+// startUpload only kicks off the background pipeline via waitUntil; tests await the promise
+// captured from the mocked waitUntil to observe the pipeline's side effects.
+const flushDeferredPipeline = async (): Promise<void> => {
+  await capturedPipelinePromise.current;
+};
+
 describe('StatementImportService', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
   const buildTransaction = () => ({
     commit: jest.fn().mockResolvedValue(undefined),
     rollback: jest.fn().mockResolvedValue(undefined),
@@ -54,20 +76,15 @@ describe('StatementImportService', () => {
       update: jest.fn().mockResolvedValue([1]),
       findById: jest
         .fn()
-        .mockResolvedValue({ id: 'import-1', status: 'PENDING' }),
+        .mockResolvedValue({ id: 'import-1', status: 'PROCESSING' }),
     }) as unknown as StatementImportRepository;
 
   const buildTransactionService = () =>
     ({
       isDuplicate: jest.fn().mockResolvedValue(false),
-      createForImport: jest.fn().mockResolvedValue({ id: 'transaction-1' }),
-      getAverageAmountForUser: jest
-        .fn()
-        .mockResolvedValue({ average: 50, count: 3 }),
       findExistingExternalIds: jest.fn().mockResolvedValue(new Set()),
-      getAverageAmountForVendor: jest
-        .fn()
-        .mockResolvedValue({ average: 50, count: 3 }),
+      detectRecurrenceForVendor: jest.fn().mockResolvedValue(null),
+      linkUnassignedVendorCharges: jest.fn().mockResolvedValue(undefined),
       bulkCreateForImport: jest
         .fn()
         .mockImplementation((_userId: string, rows: unknown[]) =>
@@ -77,24 +94,39 @@ describe('StatementImportService', () => {
         ),
     }) as unknown as TransactionService;
 
+  // Backed by the real normalization utility so the pattern keys line up between the batch
+  // resolver's map and formatRow's per-row lookup, exactly as they do in production.
+  const buildVendorAliasService = (
+    vendorIdByPattern: Record<string, string> = {},
+  ) =>
+    ({
+      normalizePattern: jest.fn().mockImplementation(normalizeDescription),
+      resolveVendorIdsBatch: jest
+        .fn()
+        .mockResolvedValue(new Map(Object.entries(vendorIdByPattern))),
+      createIdempotent: jest.fn().mockResolvedValue('vendor-1'),
+    }) as unknown as VendorAliasService;
+
   const buildVendorClassifierService = () =>
     ({
-      classify: jest.fn().mockResolvedValue({
-        vendorName: 'Netflix',
-        category: TVendorCategory.STREAMING,
-        serviceType: TServiceType.VIDEO_STREAMING,
-        billingCycle: TBillingCycle.MONTHLY,
-        cancellationEmail: null,
-        estimatedAveragePrice: null,
-        isLikelySubscription: true,
-      }),
+      classify: jest.fn().mockResolvedValue(null),
+      classifyBatch: jest.fn().mockResolvedValue([
+        {
+          vendorName: 'Netflix',
+          category: TVendorCategory.STREAMING,
+          serviceType: TServiceType.VIDEO_STREAMING,
+          billingCycle: TBillingCycle.MONTHLY,
+          cancellationEmail: null,
+          estimatedAveragePrice: null,
+          isLikelySubscription: true,
+        },
+      ]),
     }) as unknown as VendorClassifierService;
 
-  const buildInsightService = () =>
+  const buildLeakResponseService = () =>
     ({
-      generateForSubscription: jest.fn().mockResolvedValue(undefined),
-      generateForTransaction: jest.fn().mockResolvedValue(undefined),
-    }) as unknown as InsightService;
+      scanAndRespond: jest.fn().mockResolvedValue(undefined),
+    }) as unknown as LeakResponseService;
 
   it('does not create a subscription off the vendor first sighting, only once a second charge confirms it', async () => {
     const buffer = buildWorkbookBuffer([
@@ -108,15 +140,7 @@ describe('StatementImportService', () => {
       isLikelySubscription: true,
     };
 
-    const resolveVendorId = jest
-      .fn()
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce('vendor-1');
-    const vendorAliasService = {
-      resolveVendorId,
-      createIdempotent: jest.fn().mockResolvedValue('vendor-1'),
-    } as unknown as VendorAliasService;
-
+    const vendorAliasService = buildVendorAliasService();
     const findOrCreateByName = jest.fn().mockResolvedValue(vendor);
     const getById = jest.fn().mockResolvedValue(vendor);
     const vendorService = {
@@ -124,7 +148,13 @@ describe('StatementImportService', () => {
       getById,
     } as unknown as VendorService;
 
-    const findFirstActiveByVendor = jest.fn().mockResolvedValue(null);
+    // Both rows resolve to the same vendor up front (batched resolution), so the first row's
+    // own findOrCreateForImport call is what a real DB would have the second row's
+    // findFirstActiveByVendor lookup find already committed.
+    const findFirstActiveByVendor = jest
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue({ id: 'subscription-1' });
     const findOrCreateForImport = jest
       .fn()
       .mockResolvedValue({ id: 'subscription-1' });
@@ -136,15 +166,16 @@ describe('StatementImportService', () => {
     const service = new StatementImportService(
       buildSequelize(),
       vendorService,
-      buildInsightService(),
       buildTransactionService(),
       vendorAliasService,
       subscriptionService,
+      buildLeakResponseService(),
       buildVendorClassifierService(),
       buildStatementImportRepository(),
     );
 
-    await service.processUpload('user-1', buildFile(buffer));
+    await service.startUpload('user-1', buildFile(buffer));
+    await flushDeferredPipeline();
 
     expect(findOrCreateByName).toHaveBeenCalledWith(
       'Netflix',
@@ -177,15 +208,7 @@ describe('StatementImportService', () => {
       isLikelySubscription: false,
     };
 
-    const resolveVendorId = jest
-      .fn()
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce('vendor-2');
-    const vendorAliasService = {
-      resolveVendorId,
-      createIdempotent: jest.fn().mockResolvedValue('vendor-2'),
-    } as unknown as VendorAliasService;
-
+    const vendorAliasService = buildVendorAliasService();
     const vendorService = {
       findOrCreateByName: jest.fn().mockResolvedValue(vendor),
       getById: jest.fn().mockResolvedValue(vendor),
@@ -198,34 +221,178 @@ describe('StatementImportService', () => {
     } as unknown as SubscriptionService;
 
     const classifierService = {
-      classify: jest.fn().mockResolvedValue({
-        vendorName: 'Carrefour',
-        category: TVendorCategory.GROCERIES,
-        serviceType: TServiceType.NONE,
-        billingCycle: null,
-        cancellationEmail: null,
-        estimatedAveragePrice: null,
-        isLikelySubscription: false,
-      }),
+      classify: jest.fn().mockResolvedValue(null),
+      classifyBatch: jest.fn().mockResolvedValue([
+        {
+          vendorName: 'Carrefour',
+          category: TVendorCategory.GROCERIES,
+          serviceType: TServiceType.NONE,
+          billingCycle: null,
+          cancellationEmail: null,
+          estimatedAveragePrice: null,
+          isLikelySubscription: false,
+        },
+      ]),
     } as unknown as VendorClassifierService;
 
     const service = new StatementImportService(
       buildSequelize(),
       vendorService,
-      buildInsightService(),
       buildTransactionService(),
       vendorAliasService,
       subscriptionService,
+      buildLeakResponseService(),
       classifierService,
       buildStatementImportRepository(),
     );
 
-    await service.processUpload('user-1', buildFile(buffer));
+    await service.startUpload('user-1', buildFile(buffer));
+    await flushDeferredPipeline();
 
     expect(findOrCreateForImport).not.toHaveBeenCalled();
   });
 
-  it('bulk-creates every formatted row in a single call and generates insights for each', async () => {
+  it('confirms a subscription for this user from recurring charges even when the AI classified the vendor as not subscription-like', async () => {
+    const buffer = buildWorkbookBuffer([
+      ['2026-01-15', 'GYM CLUB', '99.00', 'ILS', '99.00', 'ILS', '', ''],
+      ['2026-02-15', 'GYM CLUB', '99.00', 'ILS', '99.00', 'ILS', '', ''],
+      ['2026-03-15', 'GYM CLUB', '99.00', 'ILS', '99.00', 'ILS', '', ''],
+    ]);
+
+    const vendor = {
+      id: 'vendor-3',
+      name: 'Gym Club',
+      billingCycle: null,
+      category: TVendorCategory.OTHER,
+      isLikelySubscription: false,
+    };
+
+    const vendorService = {
+      findOrCreateByName: jest.fn().mockResolvedValue(vendor),
+      getById: jest.fn().mockResolvedValue(vendor),
+    } as unknown as VendorService;
+
+    const findOrCreateForImport = jest
+      .fn()
+      .mockResolvedValue({ id: 'subscription-2' });
+    const subscriptionService = {
+      findFirstActiveByVendor: jest.fn().mockResolvedValue(null),
+      findOrCreateForImport,
+    } as unknown as SubscriptionService;
+
+    const detectRecurrenceForVendor = jest.fn().mockResolvedValue({
+      amount: '99.00',
+      currency: 'ILS',
+      billingCycle: TBillingCycle.MONTHLY,
+    });
+    const linkUnassignedVendorCharges = jest.fn().mockResolvedValue(undefined);
+    const transactionService = {
+      ...buildTransactionService(),
+      detectRecurrenceForVendor,
+      linkUnassignedVendorCharges,
+    } as unknown as TransactionService;
+
+    const classifierService = {
+      classify: jest.fn().mockResolvedValue(null),
+      classifyBatch: jest.fn().mockResolvedValue([
+        {
+          vendorName: 'Gym Club',
+          category: TVendorCategory.OTHER,
+          serviceType: TServiceType.NONE,
+          billingCycle: null,
+          cancellationEmail: null,
+          estimatedAveragePrice: null,
+          isLikelySubscription: false,
+        },
+      ]),
+    } as unknown as VendorClassifierService;
+
+    const service = new StatementImportService(
+      buildSequelize(),
+      vendorService,
+      transactionService,
+      buildVendorAliasService(),
+      subscriptionService,
+      buildLeakResponseService(),
+      classifierService,
+      buildStatementImportRepository(),
+    );
+
+    await service.startUpload('user-1', buildFile(buffer));
+    await flushDeferredPipeline();
+
+    expect(detectRecurrenceForVendor).toHaveBeenCalledTimes(1);
+    expect(detectRecurrenceForVendor).toHaveBeenCalledWith(
+      'user-1',
+      'vendor-3',
+    );
+    expect(findOrCreateForImport).toHaveBeenCalledWith(
+      'user-1',
+      'vendor-3',
+      '99.00',
+      'ILS',
+      TBillingCycle.MONTHLY,
+      expect.anything(),
+    );
+    expect(linkUnassignedVendorCharges).toHaveBeenCalledWith(
+      'user-1',
+      'vendor-3',
+      'subscription-2',
+      expect.anything(),
+    );
+  });
+
+  it('never checks habitual-spending categories like groceries for recurrence', async () => {
+    const buffer = buildWorkbookBuffer([
+      ['2026-01-15', 'CARREFOUR', '70.00', 'ILS', '70.00', 'ILS', '', ''],
+      ['2026-02-15', 'CARREFOUR', '70.00', 'ILS', '70.00', 'ILS', '', ''],
+      ['2026-03-15', 'CARREFOUR', '70.00', 'ILS', '70.00', 'ILS', '', ''],
+    ]);
+
+    const vendor = {
+      id: 'vendor-2',
+      name: 'Carrefour',
+      billingCycle: null,
+      category: TVendorCategory.GROCERIES,
+      isLikelySubscription: false,
+    };
+
+    const vendorService = {
+      findOrCreateByName: jest.fn().mockResolvedValue(vendor),
+      getById: jest.fn().mockResolvedValue(vendor),
+    } as unknown as VendorService;
+
+    const findOrCreateForImport = jest.fn();
+    const subscriptionService = {
+      findFirstActiveByVendor: jest.fn().mockResolvedValue(null),
+      findOrCreateForImport,
+    } as unknown as SubscriptionService;
+
+    const detectRecurrenceForVendor = jest.fn();
+    const transactionService = {
+      ...buildTransactionService(),
+      detectRecurrenceForVendor,
+    } as unknown as TransactionService;
+
+    const service = new StatementImportService(
+      buildSequelize(),
+      vendorService,
+      transactionService,
+      buildVendorAliasService(),
+      subscriptionService,
+      buildLeakResponseService(),
+      buildVendorClassifierService(),
+      buildStatementImportRepository(),
+    );
+
+    await service.startUpload('user-1', buildFile(buffer));
+    await flushDeferredPipeline();
+
+    expect(detectRecurrenceForVendor).not.toHaveBeenCalled();
+    expect(findOrCreateForImport).not.toHaveBeenCalled();
+  });
+
+  it('bulk-creates every formatted row in a single call and scans for leaks once', async () => {
     const buffer = buildWorkbookBuffer([
       ['2026-01-10', 'CARREFOUR', '68.11', 'ILS', '68.11', 'ILS', '', ''],
       ['2026-01-11', 'RAMI LEVY', '42.00', 'ILS', '42.00', 'ILS', '', ''],
@@ -237,10 +404,10 @@ describe('StatementImportService', () => {
       isLikelySubscription: false,
     };
 
-    const vendorAliasService = {
-      resolveVendorId: jest.fn().mockResolvedValue('vendor-1'),
-      createIdempotent: jest.fn(),
-    } as unknown as VendorAliasService;
+    const vendorAliasService = buildVendorAliasService({
+      [normalizeDescription('CARREFOUR')]: 'vendor-1',
+      [normalizeDescription('RAMI LEVY')]: 'vendor-1',
+    });
 
     const vendorService = {
       getById: jest.fn().mockResolvedValue(vendor),
@@ -264,31 +431,32 @@ describe('StatementImportService', () => {
       bulkCreateForImport,
     } as unknown as TransactionService;
 
-    const generateForTransaction = jest.fn().mockResolvedValue(undefined);
-    const insightService = {
-      generateForSubscription: jest.fn().mockResolvedValue(undefined),
-      generateForTransaction,
-    } as unknown as InsightService;
+    const scanAndRespond = jest.fn().mockResolvedValue(undefined);
+    const leakResponseService = {
+      scanAndRespond,
+    } as unknown as LeakResponseService;
 
     const service = new StatementImportService(
       buildSequelize(),
       vendorService,
-      insightService,
       transactionService,
       vendorAliasService,
       subscriptionService,
+      leakResponseService,
       buildVendorClassifierService(),
       buildStatementImportRepository(),
     );
 
-    await service.processUpload('user-1', buildFile(buffer));
+    await service.startUpload('user-1', buildFile(buffer));
+    await flushDeferredPipeline();
 
     expect(bulkCreateForImport).toHaveBeenCalledTimes(1);
     expect(bulkCreateForImport).toHaveBeenCalledWith('user-1', [
       expect.objectContaining({ amount: '68.11', vendorId: 'vendor-1' }),
       expect.objectContaining({ amount: '42.00', vendorId: 'vendor-1' }),
     ]);
-    expect(generateForTransaction).toHaveBeenCalledTimes(2);
+    expect(scanAndRespond).toHaveBeenCalledTimes(1);
+    expect(scanAndRespond).toHaveBeenCalledWith('user-1', 'import-1');
   });
 
   it('skips a row whose external id already exists for the user, without bulk-inserting it', async () => {
@@ -321,10 +489,10 @@ describe('StatementImportService', () => {
       isLikelySubscription: false,
     };
 
-    const vendorAliasService = {
-      resolveVendorId: jest.fn().mockResolvedValue('vendor-1'),
-      createIdempotent: jest.fn(),
-    } as unknown as VendorAliasService;
+    const vendorAliasService = buildVendorAliasService({
+      [normalizeDescription('CARREFOUR')]: 'vendor-1',
+      [normalizeDescription('RAMI LEVY')]: 'vendor-1',
+    });
 
     const vendorService = {
       getById: jest.fn().mockResolvedValue(vendor),
@@ -354,15 +522,16 @@ describe('StatementImportService', () => {
     const service = new StatementImportService(
       buildSequelize(),
       vendorService,
-      buildInsightService(),
       transactionService,
       vendorAliasService,
       subscriptionService,
+      buildLeakResponseService(),
       buildVendorClassifierService(),
       buildStatementImportRepository(),
     );
 
-    await service.processUpload('user-1', buildFile(buffer));
+    await service.startUpload('user-1', buildFile(buffer));
+    await flushDeferredPipeline();
 
     expect(bulkCreateForImport).toHaveBeenCalledWith('user-1', [
       expect.objectContaining({ externalId: 'VOUCHER-2' }),
@@ -381,10 +550,9 @@ describe('StatementImportService', () => {
       isLikelySubscription: false,
     };
 
-    const vendorAliasService = {
-      resolveVendorId: jest.fn().mockResolvedValue('vendor-1'),
-      createIdempotent: jest.fn(),
-    } as unknown as VendorAliasService;
+    const vendorAliasService = buildVendorAliasService({
+      [normalizeDescription('CARREFOUR')]: 'vendor-1',
+    });
 
     const vendorService = {
       getById: jest.fn().mockResolvedValue(vendor),
@@ -411,22 +579,23 @@ describe('StatementImportService', () => {
     const service = new StatementImportService(
       buildSequelize(),
       vendorService,
-      buildInsightService(),
       transactionService,
       vendorAliasService,
       subscriptionService,
+      buildLeakResponseService(),
       buildVendorClassifierService(),
       buildStatementImportRepository(),
     );
 
-    await service.processUpload('user-1', buildFile(buffer));
+    await service.startUpload('user-1', buildFile(buffer));
+    await flushDeferredPipeline();
 
     expect(bulkCreateForImport).toHaveBeenCalledWith('user-1', [
       expect.objectContaining({ amount: '68.11' }),
     ]);
   });
 
-  it('does not undercount successful imports when insight generation fails for one row', async () => {
+  it('does not undercount successful imports when leak detection fails', async () => {
     const buffer = buildWorkbookBuffer([
       ['2026-01-10', 'CARREFOUR', '68.11', 'ILS', '68.11', 'ILS', '', ''],
       ['2026-01-11', 'RAMI LEVY', '42.00', 'ILS', '42.00', 'ILS', '', ''],
@@ -438,10 +607,10 @@ describe('StatementImportService', () => {
       isLikelySubscription: false,
     };
 
-    const vendorAliasService = {
-      resolveVendorId: jest.fn().mockResolvedValue('vendor-1'),
-      createIdempotent: jest.fn(),
-    } as unknown as VendorAliasService;
+    const vendorAliasService = buildVendorAliasService({
+      [normalizeDescription('CARREFOUR')]: 'vendor-1',
+      [normalizeDescription('RAMI LEVY')]: 'vendor-1',
+    });
 
     const vendorService = {
       getById: jest.fn().mockResolvedValue(vendor),
@@ -454,13 +623,9 @@ describe('StatementImportService', () => {
     } as unknown as SubscriptionService;
 
     const transactionService = buildTransactionService();
-    const insightService = {
-      generateForSubscription: jest.fn().mockResolvedValue(undefined),
-      generateForTransaction: jest
-        .fn()
-        .mockRejectedValueOnce(new Error('insight boom'))
-        .mockResolvedValueOnce(undefined),
-    } as unknown as InsightService;
+    const leakResponseService = {
+      scanAndRespond: jest.fn().mockRejectedValue(new Error('scan boom')),
+    } as unknown as LeakResponseService;
 
     const update = jest.fn().mockResolvedValue([1]);
     const statementImportRepository = {
@@ -471,15 +636,16 @@ describe('StatementImportService', () => {
     const service = new StatementImportService(
       buildSequelize(),
       vendorService,
-      insightService,
       transactionService,
       vendorAliasService,
       subscriptionService,
+      leakResponseService,
       buildVendorClassifierService(),
       statementImportRepository,
     );
 
-    await service.processUpload('user-1', buildFile(buffer));
+    await service.startUpload('user-1', buildFile(buffer));
+    await flushDeferredPipeline();
 
     expect(update).toHaveBeenLastCalledWith(
       'import-1',
@@ -491,7 +657,7 @@ describe('StatementImportService', () => {
       { errorMessage?: string },
     ];
 
-    expect(statusPatch.errorMessage).toContain('Insight generation failed');
+    expect(statusPatch.errorMessage).toContain('Leak detection failed');
   });
 
   it('marks the import as failed when every row fails to format', async () => {
@@ -500,7 +666,10 @@ describe('StatementImportService', () => {
     ]);
 
     const vendorAliasService = {
-      resolveVendorId: jest.fn().mockRejectedValue(new Error('lookup boom')),
+      normalizePattern: jest.fn().mockImplementation(normalizeDescription),
+      resolveVendorIdsBatch: jest
+        .fn()
+        .mockRejectedValue(new Error('lookup boom')),
       createIdempotent: jest.fn(),
     } as unknown as VendorAliasService;
 
@@ -529,17 +698,102 @@ describe('StatementImportService', () => {
     const service = new StatementImportService(
       buildSequelize(),
       vendorService,
-      buildInsightService(),
       transactionService,
       vendorAliasService,
       subscriptionService,
+      buildLeakResponseService(),
       buildVendorClassifierService(),
       statementImportRepository,
     );
 
-    await service.processUpload('user-1', buildFile(buffer));
+    await service.startUpload('user-1', buildFile(buffer));
+    await flushDeferredPipeline();
 
     expect(bulkCreateForImport).not.toHaveBeenCalled();
+    expect(update).toHaveBeenLastCalledWith(
+      'import-1',
+      expect.objectContaining({ status: 'FAILED' }),
+    );
+  });
+
+  it('returns the import immediately in PROCESSING status and defers the pipeline via waitUntil', async () => {
+    const buffer = buildWorkbookBuffer([
+      ['2026-01-10', 'CARREFOUR', '68.11', 'ILS', '68.11', 'ILS', '', ''],
+    ]);
+
+    const vendorService = {
+      getById: jest.fn(),
+      findOrCreateByName: jest.fn(),
+    } as unknown as VendorService;
+
+    const subscriptionService = {
+      findFirstActiveByVendor: jest.fn(),
+      findOrCreateForImport: jest.fn(),
+    } as unknown as SubscriptionService;
+
+    const service = new StatementImportService(
+      buildSequelize(),
+      vendorService,
+      buildTransactionService(),
+      buildVendorAliasService(),
+      subscriptionService,
+      buildLeakResponseService(),
+      buildVendorClassifierService(),
+      buildStatementImportRepository(),
+    );
+
+    const result = await service.startUpload('user-1', buildFile(buffer));
+
+    expect(result).toEqual(
+      expect.objectContaining({ id: 'import-1', status: 'PROCESSING' }),
+    );
+    expect(waitUntilMock).toHaveBeenCalledTimes(1);
+
+    await flushDeferredPipeline();
+  });
+
+  it('marks the import as failed when the deferred pipeline throws outside the row loop', async () => {
+    const buffer = buildWorkbookBuffer([
+      ['2026-01-10', 'CARREFOUR', '68.11', 'ILS', '68.11', 'ILS', '', ''],
+    ]);
+
+    const vendorService = {
+      getById: jest.fn(),
+      findOrCreateByName: jest.fn(),
+    } as unknown as VendorService;
+
+    const subscriptionService = {
+      findFirstActiveByVendor: jest.fn(),
+      findOrCreateForImport: jest.fn(),
+    } as unknown as SubscriptionService;
+
+    const transactionService = {
+      ...buildTransactionService(),
+      findExistingExternalIds: jest
+        .fn()
+        .mockRejectedValue(new Error('db is down')),
+    } as unknown as TransactionService;
+
+    const update = jest.fn().mockResolvedValue([1]);
+    const statementImportRepository = {
+      ...buildStatementImportRepository(),
+      update,
+    } as unknown as StatementImportRepository;
+
+    const service = new StatementImportService(
+      buildSequelize(),
+      vendorService,
+      transactionService,
+      buildVendorAliasService(),
+      subscriptionService,
+      buildLeakResponseService(),
+      buildVendorClassifierService(),
+      statementImportRepository,
+    );
+
+    await service.startUpload('user-1', buildFile(buffer));
+    await flushDeferredPipeline();
+
     expect(update).toHaveBeenLastCalledWith(
       'import-1',
       expect.objectContaining({ status: 'FAILED' }),

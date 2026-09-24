@@ -59,7 +59,7 @@ export class StatementImportController {
     @CurrentUser() userId: string,
     @UploadedFile() file: Express.Multer.File,
   ): Promise<StatementImport> {
-    return this.statementImportService.processUpload(userId, file);
+    return this.statementImportService.startUpload(userId, file);
   }
 
   @Post()

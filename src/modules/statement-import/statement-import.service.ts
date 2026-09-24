@@ -16,12 +16,12 @@ import {
 } from './constants/import-status.constant';
 
 import { Sequelize } from 'sequelize';
+import { waitUntil } from '@vercel/functions';
 import { DATA_LENGTHS } from '@Constants/data-length';
 import { TypedLogger } from '../../logger/logger.service';
 import { IBatchResult } from '@Interfaces/batch.interface';
 import { VendorService } from '@Modules/vendor/vendor.service';
 import { Vendor } from '@Modules/vendor/entities/vendor.entity';
-import { InsightService } from '@Modules/insight/insight.service';
 import { TImportSource } from './constants/import-source.constant';
 import { ProviderNames } from '@Providers/database/provider-names';
 import { StatementImport } from './entities/statement-import.entity';
@@ -31,13 +31,14 @@ import { GetStatementImportsDto } from './dto/get-statement-imports.dto';
 import { StatementImportRepository } from './statement-import.repository';
 import { CreateStatementImportDto } from './dto/create-statement-import.dto';
 import { TransactionService } from '@Modules/transaction/transaction.service';
-import { Transaction } from '@Modules/transaction/entities/transaction.entity';
 import { VendorAliasService } from '@Modules/vendor-alias/vendor-alias.service';
 import { SubscriptionService } from '@Modules/subscription/subscription.service';
 import { IMPORT_STATUS_PATCH_BY_STATUS } from './constants/status-patch.constant';
-import { ISpendingBaseline } from '@Modules/transaction/utilities/spending-baseline.utility';
+import { LeakResponseService } from '@Modules/leak-response/leak-response.service';
 import { VendorClassifierService } from '@Modules/vendor-classifier/vendor-classifier.service';
+import { NON_SUBSCRIPTION_CATEGORIES } from '@Modules/vendor/constants/vendor-category.constant';
 import { TCreateTransactionForImport } from '@Modules/transaction/interfaces/transaction.interface';
+import { IVendorClassification } from '@Modules/vendor-classifier/interfaces/vendor-classification.interface';
 
 interface IRowDedupeState {
   seenKeys: Set<string>;
@@ -48,8 +49,6 @@ interface IRowDedupeState {
 interface IPreparedTransactionRow {
   vendor: Vendor | null;
   data: TCreateTransactionForImport;
-  userBaseline: ISpendingBaseline | null;
-  vendorBaseline: ISpendingBaseline | null;
 }
 
 @Injectable()
@@ -60,10 +59,10 @@ export class StatementImportService {
     @Inject(ProviderNames.SEQUELIZE)
     private readonly sequelize: Sequelize,
     private readonly vendorService: VendorService,
-    private readonly insightService: InsightService,
     private readonly transactionService: TransactionService,
     private readonly vendorAliasService: VendorAliasService,
     private readonly subscriptionService: SubscriptionService,
+    private readonly leakResponseService: LeakResponseService,
     private readonly vendorClassifierService: VendorClassifierService,
     private readonly statementImportRepository: StatementImportRepository,
   ) {}
@@ -99,7 +98,10 @@ export class StatementImportService {
     });
   }
 
-  public async processUpload(
+  // Returns as soon as the import is recorded and marked PROCESSING; the actual parsing,
+  // classification, insertion, and leak detection continue in the background via waitUntil
+  // (see failImport for why a crash there still has to reach the row instead of vanishing).
+  public async startUpload(
     userId: string,
     file: Express.Multer.File,
   ): Promise<StatementImport> {
@@ -120,10 +122,30 @@ export class StatementImportService {
       filename: file.originalname,
     });
 
-    await this.updateStatus(statementImport.id, userId, {
-      status: TImportStatus.PROCESSING,
-    });
+    const processingImport = await this.updateStatus(
+      statementImport.id,
+      userId,
+      { status: TImportStatus.PROCESSING },
+    );
 
+    waitUntil(
+      this.runImportPipeline(
+        userId,
+        processingImport.id,
+        rows,
+        parseErrors,
+      ).catch((error) => this.failImport(processingImport.id, userId, error)),
+    );
+
+    return processingImport;
+  }
+
+  private async runImportPipeline(
+    userId: string,
+    importId: string,
+    rows: IParsedTransactionRow[],
+    parseErrors: string[],
+  ): Promise<void> {
     const rowErrors = [...parseErrors];
     const dedupeState: IRowDedupeState = {
       seenKeys: new Set(),
@@ -136,14 +158,17 @@ export class StatementImportService {
             .filter((externalId): externalId is string => externalId != null),
         ),
     };
+
+    const vendorByPattern = await this.resolveVendorsForRows(rows);
     const preparedRows: IPreparedTransactionRow[] = [];
 
     for (const row of rows) {
       try {
         const preparedRow = await this.formatRow(
           userId,
-          statementImport.id,
+          importId,
           row,
+          vendorByPattern,
           dedupeState,
         );
 
@@ -170,27 +195,8 @@ export class StatementImportService {
           )
         : [];
 
-    const insightResults = await Promise.allSettled(
-      createdTransactions.map((transactionRecord, index) =>
-        this.generateInsightsForRow(
-          userId,
-          transactionRecord,
-          preparedRows[index],
-        ),
-      ),
-    );
-
-    for (const insightResult of insightResults) {
-      if (insightResult.status === 'rejected') {
-        this.logger.error({
-          message: 'Failed to generate insight for imported transaction',
-          error: insightResult.reason,
-        });
-        rowErrors.push(
-          `Insight generation failed: ${normalizeError(insightResult.reason).message}`,
-        );
-      }
-    }
+    await this.confirmRecurringSubscriptions(userId, preparedRows, rowErrors);
+    await this.scanForLeaks(userId, importId, rowErrors);
 
     const successCount = createdTransactions.length;
     const hasOnlyFailedRows = rows.length > 0 && successCount === 0;
@@ -198,7 +204,7 @@ export class StatementImportService {
       ? rowErrors.slice(0, 50).join('\n').slice(0, DATA_LENGTHS.DESCRIPTION)
       : undefined;
 
-    return this.updateStatus(statementImport.id, userId, {
+    await this.updateStatus(importId, userId, {
       status: hasOnlyFailedRows
         ? TImportStatus.FAILED
         : TImportStatus.COMPLETED,
@@ -207,10 +213,169 @@ export class StatementImportService {
     });
   }
 
+  // A scan failure is reported alongside the import instead of failing it outright: the
+  // transactions themselves were still ingested successfully.
+  private async scanForLeaks(
+    userId: string,
+    importId: string,
+    rowErrors: string[],
+  ): Promise<void> {
+    try {
+      await this.leakResponseService.scanAndRespond(userId, importId);
+    } catch (error) {
+      this.logger.error({
+        message: 'Failed to scan for financial leaks after import',
+        error,
+      });
+      rowErrors.push(`Leak detection failed: ${normalizeError(error).message}`);
+    }
+  }
+
+  // Under waitUntil there is no HTTP caller left to see a thrown error, so without this the
+  // import would stay stuck at PROCESSING forever with no way for the client to find out.
+  private async failImport(
+    id: string,
+    userId: string,
+    error: unknown,
+  ): Promise<void> {
+    this.logger.error({ message: 'Statement import pipeline crashed', error });
+
+    try {
+      await this.updateStatus(id, userId, {
+        status: TImportStatus.FAILED,
+        errorMessage: normalizeError(error).message.slice(
+          0,
+          DATA_LENGTHS.DESCRIPTION,
+        ),
+      });
+    } catch (updateError) {
+      this.logger.error({
+        message: 'Failed to mark crashed import as FAILED',
+        error: updateError,
+      });
+    }
+  }
+
+  // Resolves every row's vendor up front in two passes instead of once per row: an exact-match
+  // batch lookup against known aliases, then a single batched AI call for whatever is left.
+  private async resolveVendorsForRows(
+    rows: IParsedTransactionRow[],
+  ): Promise<Map<string, Vendor>> {
+    const descriptions = rows.map((row) => row.originalDescription);
+    const vendorIdByPattern =
+      await this.vendorAliasService.resolveVendorIdsBatch(descriptions);
+
+    const vendorByPattern = new Map<string, Vendor>();
+    const unresolvedByPattern = new Map<string, string>();
+
+    for (const description of descriptions) {
+      const pattern = this.vendorAliasService.normalizePattern(description);
+
+      if (vendorByPattern.has(pattern) || unresolvedByPattern.has(pattern)) {
+        continue;
+      }
+
+      const vendorId = vendorIdByPattern.get(pattern);
+
+      if (vendorId == null) {
+        unresolvedByPattern.set(pattern, description);
+        continue;
+      }
+
+      vendorByPattern.set(
+        pattern,
+        await this.resolveExistingVendor(vendorId, description),
+      );
+    }
+
+    await this.classifyUnresolvedVendors(unresolvedByPattern, vendorByPattern);
+
+    return vendorByPattern;
+  }
+
+  private async resolveExistingVendor(
+    vendorId: string,
+    originalDescription: string,
+  ): Promise<Vendor> {
+    const vendor = await this.vendorService.getById(vendorId);
+
+    if (vendor.isLikelySubscription != null) {
+      return vendor;
+    }
+
+    // An older or admin-created vendor can be left with an unresolved classification; retry it
+    // here so the vendor can self-heal instead of staying stuck undetectable forever.
+    return this.resolveMissingLikelySubscription(vendor, originalDescription);
+  }
+
+  private async classifyUnresolvedVendors(
+    unresolvedByPattern: Map<string, string>,
+    vendorByPattern: Map<string, Vendor>,
+  ): Promise<void> {
+    if (unresolvedByPattern.size === 0) {
+      return;
+    }
+
+    const entries = [...unresolvedByPattern.entries()];
+    const classifications = await this.vendorClassifierService.classifyBatch(
+      entries.map(([, description]) => description),
+    );
+
+    for (const [index, [pattern, description]] of entries.entries()) {
+      const classification = classifications[index];
+
+      if (classification == null) {
+        continue;
+      }
+
+      vendorByPattern.set(
+        pattern,
+        await this.createVendorFromClassification(description, classification),
+      );
+    }
+  }
+
+  private async createVendorFromClassification(
+    originalDescription: string,
+    classification: IVendorClassification,
+  ): Promise<Vendor> {
+    const transaction = await this.sequelize.transaction();
+
+    try {
+      const vendor = await this.vendorService.findOrCreateByName(
+        classification.vendorName,
+        {
+          category: classification.category,
+          serviceType: classification.serviceType,
+          billingCycle: classification.billingCycle,
+          cancellationEmail: classification.cancellationEmail,
+          averageMarketPrice: classification.estimatedAveragePrice,
+          isLikelySubscription: classification.isLikelySubscription,
+        },
+        transaction,
+      );
+
+      await this.vendorAliasService.createIdempotent(
+        originalDescription,
+        vendor.id,
+        transaction,
+      );
+
+      await transaction.commit();
+
+      return vendor;
+    } catch (error) {
+      await transaction.rollback();
+
+      throw error;
+    }
+  }
+
   private async formatRow(
     userId: string,
     importId: string,
     row: IParsedTransactionRow,
+    vendorByPattern: Map<string, Vendor>,
     dedupeState: IRowDedupeState,
   ): Promise<IPreparedTransactionRow | null> {
     const isExternalIdDuplicate =
@@ -235,118 +400,14 @@ export class StatementImportService {
       return null;
     }
 
-    let vendor: Vendor | null = null;
-    let vendorId = await this.vendorAliasService.resolveVendorId(
+    const pattern = this.vendorAliasService.normalizePattern(
       row.originalDescription,
     );
-    let subscriptionId: string | null = null;
-
-    if (vendorId == null) {
-      const classification = await this.vendorClassifierService.classify(
-        row.originalDescription,
-      );
-
-      if (classification != null) {
-        const transaction = await this.sequelize.transaction();
-
-        try {
-          vendor = await this.vendorService.findOrCreateByName(
-            classification.vendorName,
-            {
-              category: classification.category,
-              serviceType: classification.serviceType,
-              billingCycle: classification.billingCycle,
-              cancellationEmail: classification.cancellationEmail,
-              averageMarketPrice: classification.estimatedAveragePrice,
-              isLikelySubscription: classification.isLikelySubscription,
-            },
-            transaction,
-          );
-
-          vendorId = await this.vendorAliasService.createIdempotent(
-            row.originalDescription,
-            vendor.id,
-            transaction,
-          );
-
-          await transaction.commit();
-        } catch (error) {
-          await transaction.rollback();
-
-          throw error;
-        }
-      }
-    } else {
-      vendor = await this.vendorService.getById(vendorId);
-
-      if (vendor.isLikelySubscription == null) {
-        // An older or admin-created vendor can be left with an unresolved classification; retry it
-        // here so the vendor can self-heal instead of staying stuck undetectable forever.
-        vendor = await this.resolveMissingLikelySubscription(
-          vendor,
-          row.originalDescription,
-        );
-      }
-
-      const existingSubscription =
-        await this.subscriptionService.findFirstActiveByVendor(
-          userId,
-          vendorId,
-        );
-
-      if (existingSubscription != null) {
-        subscriptionId = existingSubscription.id;
-
-        await this.insightService.generateForSubscription(
-          userId,
-          existingSubscription,
-          vendor,
-        );
-      } else if (vendor.isLikelySubscription) {
-        // A second real charge from a vendor the AI flagged as subscription-like confirms the
-        // recurrence, so the subscription is only created now rather than off a single guess.
-        const transaction = await this.sequelize.transaction();
-
-        try {
-          const subscription =
-            await this.subscriptionService.findOrCreateForImport(
-              userId,
-              vendorId,
-              row.amount,
-              row.currency,
-              vendor.billingCycle,
-              transaction,
-            );
-
-          subscriptionId = subscription.id;
-
-          await this.insightService.generateForSubscription(
-            userId,
-            subscription,
-            vendor,
-            transaction,
-          );
-
-          await transaction.commit();
-        } catch (error) {
-          await transaction.rollback();
-
-          throw error;
-        }
-      }
-    }
-
-    let vendorBaseline: ISpendingBaseline | null = null;
-    let userBaseline: ISpendingBaseline | null = null;
-
-    if (vendorId != null) {
-      vendorBaseline = await this.transactionService.getAverageAmountForVendor(
-        userId,
-        vendorId,
-      );
-      userBaseline =
-        await this.transactionService.getAverageAmountForUser(userId);
-    }
+    const vendor = vendorByPattern.get(pattern) ?? null;
+    const subscriptionId =
+      vendor != null
+        ? await this.resolveSubscriptionForRow(userId, vendor, row)
+        : null;
 
     dedupeState.seenKeys.add(rowKey);
 
@@ -356,32 +417,128 @@ export class StatementImportService {
 
     return {
       vendor,
-      userBaseline,
-      vendorBaseline,
-      data: { ...row, vendorId, importId, subscriptionId },
+      data: { ...row, importId, subscriptionId, vendorId: vendor?.id ?? null },
     };
   }
 
-  private async generateInsightsForRow(
+  private async resolveSubscriptionForRow(
     userId: string,
-    transactionRecord: Transaction,
-    preparedRow: IPreparedTransactionRow,
+    vendor: Vendor,
+    row: IParsedTransactionRow,
+  ): Promise<string | null> {
+    const existingSubscription =
+      await this.subscriptionService.findFirstActiveByVendor(userId, vendor.id);
+
+    if (existingSubscription != null) {
+      return existingSubscription.id;
+    }
+
+    if (!vendor.isLikelySubscription) {
+      return null;
+    }
+
+    const transaction = await this.sequelize.transaction();
+
+    try {
+      const subscription = await this.subscriptionService.findOrCreateForImport(
+        userId,
+        vendor.id,
+        row.amount,
+        row.currency,
+        vendor.billingCycle,
+        transaction,
+      );
+
+      await transaction.commit();
+
+      return subscription.id;
+    } catch (error) {
+      await transaction.rollback();
+
+      throw error;
+    }
+  }
+
+  // Runs after the rows are inserted so charges from this same statement count as evidence;
+  // the AI's single-description guess can miss a subscription the user's history proves.
+  private async confirmRecurringSubscriptions(
+    userId: string,
+    preparedRows: IPreparedTransactionRow[],
+    rowErrors: string[],
   ): Promise<void> {
-    if (
-      preparedRow.vendor == null ||
-      preparedRow.userBaseline == null ||
-      preparedRow.vendorBaseline == null
-    ) {
+    for (const vendor of this.collectRecurrenceCandidates(preparedRows)) {
+      try {
+        await this.confirmRecurringSubscription(userId, vendor);
+      } catch (error) {
+        this.logger.error({
+          message: 'Failed to confirm recurring subscription',
+          error,
+          vendorId: vendor.id,
+        });
+        rowErrors.push(
+          `Recurrence detection failed for ${vendor.name}: ${normalizeError(error).message}`,
+        );
+      }
+    }
+  }
+
+  private collectRecurrenceCandidates(
+    preparedRows: IPreparedTransactionRow[],
+  ): Vendor[] {
+    const candidateByVendorId = new Map<string, Vendor>();
+
+    for (const { vendor, data } of preparedRows) {
+      const isUnassigned = vendor != null && data.subscriptionId == null;
+      const isSubscriptionCategory =
+        vendor?.category == null ||
+        !NON_SUBSCRIPTION_CATEGORIES.includes(vendor.category);
+
+      if (isUnassigned && isSubscriptionCategory) {
+        candidateByVendorId.set(vendor.id, vendor);
+      }
+    }
+
+    return [...candidateByVendorId.values()];
+  }
+
+  private async confirmRecurringSubscription(
+    userId: string,
+    vendor: Vendor,
+  ): Promise<void> {
+    const recurrence = await this.transactionService.detectRecurrenceForVendor(
+      userId,
+      vendor.id,
+    );
+
+    if (recurrence == null) {
       return;
     }
 
-    await this.insightService.generateForTransaction(
-      userId,
-      transactionRecord,
-      preparedRow.vendor,
-      preparedRow.vendorBaseline,
-      preparedRow.userBaseline,
-    );
+    const transaction = await this.sequelize.transaction();
+
+    try {
+      const subscription = await this.subscriptionService.findOrCreateForImport(
+        userId,
+        vendor.id,
+        recurrence.amount,
+        recurrence.currency,
+        recurrence.billingCycle,
+        transaction,
+      );
+
+      await this.transactionService.linkUnassignedVendorCharges(
+        userId,
+        vendor.id,
+        subscription.id,
+        transaction,
+      );
+
+      await transaction.commit();
+    } catch (error) {
+      await transaction.rollback();
+
+      throw error;
+    }
   }
 
   private async resolveMissingLikelySubscription(

@@ -8,6 +8,7 @@ import { Sequelize, SequelizeOptions } from 'sequelize-typescript';
 import { XpEvent } from '@Modules/xp-event/entities/xp-event.entity';
 import { XpAction } from '@Modules/xp-action/entities/xp-action.entity';
 import { Transaction } from '@Modules/transaction/entities/transaction.entity';
+import { DraftAction } from '@Modules/draft-action/entities/draft-action.entity';
 import { EnvironmentManager } from '../../utilities/environment-manager.utility';
 import { VendorAlias } from '@Modules/vendor-alias/entities/vendor-alias.entity';
 import { Subscription } from '@Modules/subscription/entities/subscription.entity';
@@ -65,6 +66,7 @@ export const DatabaseProvider: Provider = {
       XpEvent,
       VendorAlias,
       Transaction,
+      DraftAction,
       Subscription,
       StatementImport,
     ]);

@@ -22,6 +22,8 @@ import {
   INSIGHT_STATUS_VALUES,
 } from '../constants/insight-status.constant';
 
+import { Op } from 'sequelize';
+import { MONEY_PRECISION } from '@Constants/money';
 import { User } from '@Modules/user/entities/user.entity';
 import { IInsight, TCreateInsight } from '../interfaces/insight.interface';
 import { Transaction } from '@Modules/transaction/entities/transaction.entity';
@@ -32,10 +34,22 @@ import { Subscription } from '@Modules/subscription/entities/subscription.entity
   indexes: [
     { name: 'idx_insights_user_status', fields: ['user_id', 'status'] },
     {
-      name: 'idx_insights_unread_dedupe',
       unique: true,
+      name: 'idx_insights_unread_dedupe_subscription',
       fields: ['user_id', 'subscription_id', 'type'],
-      where: { status: TInsightStatus.UNREAD },
+      where: {
+        status: TInsightStatus.UNREAD,
+        subscriptionId: { [Op.ne]: null },
+      },
+    },
+    {
+      unique: true,
+      name: 'idx_insights_unread_dedupe_transaction',
+      fields: ['user_id', 'transaction_id', 'type'],
+      where: {
+        status: TInsightStatus.UNREAD,
+        transactionId: { [Op.ne]: null },
+      },
     },
   ],
 })
@@ -75,6 +89,17 @@ export class Insight
   @Default(TInsightStatus.UNREAD)
   @Column({ type: DataType.ENUM, values: INSIGHT_STATUS_VALUES })
   declare status: TInsightStatus;
+
+  @AllowNull(false)
+  @Default({})
+  @Column({ type: DataType.JSONB })
+  declare metadata: Record<string, unknown>;
+
+  @AllowNull(true)
+  @Column({
+    type: DataType.DECIMAL(MONEY_PRECISION.DIGITS, MONEY_PRECISION.DECIMALS),
+  })
+  declare estimatedMonthlySavings: string | null;
 
   @BelongsTo(() => Subscription)
   declare subscription: Subscription;

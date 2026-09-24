@@ -60,25 +60,14 @@ export class TransactionRepository {
     });
   }
 
-  public async getAmountsForVendor(
+  public getChargesForVendor(
     userId: string,
     vendorId: string,
-  ): Promise<string[]> {
-    const transactions = await Transaction.findAll({
+  ): Promise<Transaction[]> {
+    return Transaction.findAll({
       where: { userId, vendorId },
-      attributes: ['amount'],
+      attributes: ['amount', 'currency', 'transactionDate'],
     });
-
-    return transactions.map((transaction) => transaction.amount);
-  }
-
-  public async getAmountsForUser(userId: string): Promise<string[]> {
-    const transactions = await Transaction.findAll({
-      where: { userId },
-      attributes: ['amount'],
-    });
-
-    return transactions.map((transaction) => transaction.amount);
   }
 
   public async findExistingExternalIds(
@@ -113,6 +102,18 @@ export class TransactionRepository {
     transaction?: SequelizeTransaction,
   ): Promise<[number]> {
     return Transaction.update(data, { where: { id }, transaction });
+  }
+
+  public linkUnassignedVendorCharges(
+    userId: string,
+    vendorId: string,
+    subscriptionId: string,
+    transaction?: SequelizeTransaction,
+  ): Promise<[number]> {
+    return Transaction.update(
+      { subscriptionId },
+      { where: { userId, vendorId, subscriptionId: null }, transaction },
+    );
   }
 
   public softDelete(

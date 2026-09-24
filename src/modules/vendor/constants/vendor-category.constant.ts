@@ -26,3 +26,16 @@ export enum TVendorCategory {
 }
 
 export const VENDOR_CATEGORY_VALUES = Object.values(TVendorCategory);
+
+// Categories whose repeat charges are habitual spending, not a plan the user can cancel, so a
+// steady cadence there must never be promoted to a subscription.
+export const NON_SUBSCRIPTION_CATEGORIES: readonly TVendorCategory[] = [
+  TVendorCategory.DINING,
+  TVendorCategory.GROCERIES,
+  TVendorCategory.TRANSPORTATION,
+  TVendorCategory.MONEY_TRANSFER,
+  TVendorCategory.DEBT_REPAYMENT,
+  TVendorCategory.FINANCIAL_FEES,
+  TVendorCategory.SHOPPING_APPAREL,
+  TVendorCategory.TRAVEL_VACATIONS,
+];

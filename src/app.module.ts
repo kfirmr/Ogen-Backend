@@ -10,10 +10,13 @@ import { XpEventModule } from '@Modules/xp-event/xp-event.module';
 import { XpActionModule } from '@Modules/xp-action/xp-action.module';
 import { DatabaseModule } from './providers/database/database.module';
 import { TransactionModule } from '@Modules/transaction/transaction.module';
+import { DraftActionModule } from '@Modules/draft-action/draft-action.module';
 import { VendorAliasModule } from '@Modules/vendor-alias/vendor-alias.module';
 import { SubscriptionModule } from '@Modules/subscription/subscription.module';
+import { LeakResponseModule } from '@Modules/leak-response/leak-response.module';
 import { StatementImportModule } from '@Modules/statement-import/statement-import.module';
 import { VendorClassifierModule } from '@Modules/vendor-classifier/vendor-classifier.module';
+import { CancellationAgentModule } from '@Modules/cancellation-agent/cancellation-agent.module';
 
 @Module({
   imports: [
@@ -31,6 +34,9 @@ import { VendorClassifierModule } from '@Modules/vendor-classifier/vendor-classi
     TransactionModule,
     SubscriptionModule,
     StatementImportModule,
+    DraftActionModule,
+    CancellationAgentModule,
+    LeakResponseModule,
   ],
   controllers: [AppController],
   providers: [AppService],
