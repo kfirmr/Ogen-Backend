@@ -3,6 +3,7 @@ import { VendorRepository } from './vendor.repository';
 import { TServiceType } from './constants/service-type.constant';
 import { TVendorCategory } from './constants/vendor-category.constant';
 import { TBillingCycle } from '@Modules/subscription/constants/billing-cycle.constant';
+import { VENDOR_NAME_SIMILARITY_THRESHOLD } from './constants/vendor-matching.constant';
 
 const buildVendor = (overrides: Partial<Record<string, unknown>> = {}) => ({
   id: 'vendor-1',
@@ -34,6 +35,7 @@ describe('VendorService', () => {
       const refreshedVendor = buildVendor({ isLikelySubscription: true });
       const repository = {
         findByName: jest.fn().mockResolvedValue(existingVendor),
+        findSimilarByName: jest.fn(),
         findById: jest.fn().mockResolvedValue(refreshedVendor),
         update: jest.fn().mockResolvedValue([1]),
         create: jest.fn(),
@@ -51,12 +53,14 @@ describe('VendorService', () => {
         undefined,
       );
       expect(result).toBe(refreshedVendor);
+      expect(repository.findSimilarByName).not.toHaveBeenCalled();
     });
 
     it('does not overwrite an already-resolved isLikelySubscription', async () => {
       const existingVendor = buildVendor({ isLikelySubscription: false });
       const repository = {
         findByName: jest.fn().mockResolvedValue(existingVendor),
+        findSimilarByName: jest.fn(),
         findById: jest.fn(),
         update: jest.fn(),
         create: jest.fn(),
@@ -76,6 +80,7 @@ describe('VendorService', () => {
       const createdVendor = buildVendor({ isLikelySubscription: true });
       const repository = {
         findByName: jest.fn().mockResolvedValue(null),
+        findSimilarByName: jest.fn().mockResolvedValue(null),
         findById: jest.fn(),
         update: jest.fn(),
         create: jest.fn().mockResolvedValue(createdVendor),
@@ -95,6 +100,35 @@ describe('VendorService', () => {
         undefined,
       );
       expect(result).toBe(createdVendor);
+    });
+
+    it('reuses a vendor found by fuzzy name match instead of creating a duplicate', async () => {
+      const similarVendor = buildVendor({ name: 'GymCity Ltd' });
+      const refreshedVendor = buildVendor({
+        name: 'GymCity Ltd',
+        isLikelySubscription: true,
+      });
+      const repository = {
+        findByName: jest.fn().mockResolvedValue(null),
+        findSimilarByName: jest.fn().mockResolvedValue(similarVendor),
+        findById: jest.fn().mockResolvedValue(refreshedVendor),
+        update: jest.fn().mockResolvedValue([1]),
+        create: jest.fn(),
+      } as unknown as VendorRepository;
+      const service = new VendorService(repository);
+
+      const result = await service.findOrCreateByName(
+        'Gym City',
+        buildDefaults(),
+      );
+
+      expect(repository.findSimilarByName).toHaveBeenCalledWith(
+        'Gym City',
+        VENDOR_NAME_SIMILARITY_THRESHOLD,
+        undefined,
+      );
+      expect(repository.create).not.toHaveBeenCalled();
+      expect(result).toBe(refreshedVendor);
     });
   });
 });

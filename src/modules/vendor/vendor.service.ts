@@ -13,6 +13,7 @@ import { Transaction, UniqueConstraintError } from 'sequelize';
 import { TServiceType } from './constants/service-type.constant';
 import { TVendorCategory } from './constants/vendor-category.constant';
 import { TBillingCycle } from '@Modules/subscription/constants/billing-cycle.constant';
+import { VENDOR_NAME_SIMILARITY_THRESHOLD } from './constants/vendor-matching.constant';
 
 interface IVendorClassificationDefaults {
   isLikelySubscription: boolean;
@@ -69,14 +70,11 @@ export class VendorService {
     defaults: IVendorClassificationDefaults,
     transaction?: Transaction,
   ): Promise<Vendor> {
-    const existingVendor = await this.vendorRepository.findByName(
-      name,
-      transaction,
-    );
+    const matchingVendor = await this.findMatchingVendor(name, transaction);
 
-    if (existingVendor != null) {
+    if (matchingVendor != null) {
       return this.backfillLikelySubscription(
-        existingVendor,
+        matchingVendor,
         defaults,
         transaction,
       );
@@ -111,6 +109,29 @@ export class VendorService {
 
       throw error;
     }
+  }
+
+  // An exact (case-insensitive) name match wins when available; otherwise fall back to a fuzzy
+  // trigram match so an AI-extracted variant of an existing vendor's name (different casing,
+  // suffix, or punctuation) reuses that vendor instead of spawning a duplicate.
+  private async findMatchingVendor(
+    name: string,
+    transaction?: Transaction,
+  ): Promise<Vendor | null> {
+    const exactMatch = await this.vendorRepository.findByName(
+      name,
+      transaction,
+    );
+
+    if (exactMatch != null) {
+      return exactMatch;
+    }
+
+    return this.vendorRepository.findSimilarByName(
+      name,
+      VENDOR_NAME_SIMILARITY_THRESHOLD,
+      transaction,
+    );
   }
 
   // A vendor's first sighting can leave isLikelySubscription null when the classifier was unsure;

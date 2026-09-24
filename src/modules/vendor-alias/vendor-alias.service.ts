@@ -79,10 +79,24 @@ export class VendorAliasService {
     await this.vendorAliasRepository.delete(id);
   }
 
+  public normalizePattern(description: string): string {
+    return normalizeDescription(description);
+  }
+
   public async resolveVendorId(description: string): Promise<string | null> {
     const pattern = normalizeDescription(description);
     const alias = await this.vendorAliasRepository.findByPattern(pattern);
 
     return alias?.vendorId ?? null;
+  }
+
+  public async resolveVendorIdsBatch(
+    descriptions: string[],
+  ): Promise<Map<string, string>> {
+    const patterns = [...new Set(descriptions.map(normalizeDescription))];
+    const aliases =
+      await this.vendorAliasRepository.findManyByPatterns(patterns);
+
+    return new Map(aliases.map((alias) => [alias.pattern, alias.vendorId]));
   }
 }

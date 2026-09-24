@@ -27,3 +27,20 @@ export const VendorClassificationSchema = z.object({
   cancellationEmail: z.string().nullable(),
   estimatedAveragePrice: z.string().regex(MONEY_REGEX.AMOUNT).nullable(),
 });
+
+export const CLASSIFICATION_BATCH_SIZE = 20;
+
+export const CLASSIFICATION_BATCH_MAX_TOKENS = 8192;
+
+export const CLASSIFICATION_BATCH_SYSTEM_PROMPT = `${CLASSIFICATION_SYSTEM_PROMPT}
+
+You will receive a JSON array of transaction descriptions, each tagged with an index, e.g. [{"index": 0, "description": "..."}, {"index": 1, "description": "..."}]. Classify every item independently using the rules above, and return exactly one classification per input item, each carrying back the same "index" value it was given, so the caller can match your output to the correct input even if your response reorders or omits an item.`;
+
+export const VendorClassificationBatchItemSchema =
+  VendorClassificationSchema.extend({
+    index: z.number().int(),
+  });
+
+export const VendorClassificationBatchSchema = z.object({
+  classifications: z.array(VendorClassificationBatchItemSchema),
+});

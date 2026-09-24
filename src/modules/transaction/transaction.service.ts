@@ -1,17 +1,14 @@
-import {
-  ISpendingBaseline,
-  computeSpendingBaseline,
-} from './utilities/spending-baseline.utility';
-
 import { TypedLogger } from '../../logger/logger.service';
 import { IBatchResult } from '@Interfaces/batch.interface';
 import { Transaction } from './entities/transaction.entity';
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { IRecurrence } from './interfaces/recurrence.interface';
 import { Transaction as SequelizeTransaction } from 'sequelize';
 import { GetTransactionsDto } from './dto/get-transactions.dto';
 import { TransactionRepository } from './transaction.repository';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { AttachSubscriptionDto } from './dto/attach-subscription.dto';
+import { detectRecurrence } from './utilities/recurrence-detection.utility';
 import { VendorAliasService } from '@Modules/vendor-alias/vendor-alias.service';
 import { SubscriptionService } from '@Modules/subscription/subscription.service';
 import { TCreateTransactionForImport } from './interfaces/transaction.interface';
@@ -82,24 +79,30 @@ export class TransactionService {
     return duplicate != null;
   }
 
-  public async getAverageAmountForVendor(
+  public async detectRecurrenceForVendor(
     userId: string,
     vendorId: string,
-  ): Promise<ISpendingBaseline> {
-    const amounts = await this.transactionRepository.getAmountsForVendor(
+  ): Promise<IRecurrence | null> {
+    const charges = await this.transactionRepository.getChargesForVendor(
       userId,
       vendorId,
     );
 
-    return computeSpendingBaseline(amounts);
+    return detectRecurrence(charges);
   }
 
-  public async getAverageAmountForUser(
+  public async linkUnassignedVendorCharges(
     userId: string,
-  ): Promise<ISpendingBaseline> {
-    const amounts = await this.transactionRepository.getAmountsForUser(userId);
-
-    return computeSpendingBaseline(amounts);
+    vendorId: string,
+    subscriptionId: string,
+    transaction?: SequelizeTransaction,
+  ): Promise<void> {
+    await this.transactionRepository.linkUnassignedVendorCharges(
+      userId,
+      vendorId,
+      subscriptionId,
+      transaction,
+    );
   }
 
   public async createForImport(

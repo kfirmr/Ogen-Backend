@@ -15,8 +15,6 @@ import { Insight } from './entities/insight.entity';
 import { GetInsightsDto } from './dto/get-insights.dto';
 import { IBatchResult } from '@Interfaces/batch.interface';
 import { Vendor } from '@Modules/vendor/entities/vendor.entity';
-import { TInsightType } from './constants/insight-type.constant';
-import { TInsightStatus } from './constants/insight-status.constant';
 import { IInsight, TCreateInsight } from './interfaces/insight.interface';
 import { Transaction } from '@Modules/transaction/entities/transaction.entity';
 import { Subscription } from '@Modules/subscription/entities/subscription.entity';
@@ -53,23 +51,6 @@ export class InsightRepository {
     });
 
     return { items, nextCursor: buildNextCursor(items, batchSize) };
-  }
-
-  public findUnreadBySubscriptions(
-    userId: string,
-    type: TInsightType,
-    subscriptionIds: string[],
-    transaction?: SequelizeTransaction,
-  ): Promise<Insight | null> {
-    return Insight.findOne({
-      where: {
-        type,
-        userId,
-        status: TInsightStatus.UNREAD,
-        subscriptionId: { [Op.in]: subscriptionIds },
-      },
-      transaction,
-    });
   }
 
   public create(
