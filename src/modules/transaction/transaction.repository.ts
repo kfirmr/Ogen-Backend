@@ -50,23 +50,31 @@ export class TransactionRepository {
     return { items, nextCursor: buildNextCursor(items, batchSize) };
   }
 
-  public findDuplicateForImport(
+  public findByDates(
     userId: string,
-    transactionDate: string,
-    amount: string,
-  ): Promise<Transaction | null> {
-    return Transaction.findOne({
-      where: { userId, transactionDate, amount },
+    transactionDates: string[],
+  ): Promise<Transaction[]> {
+    if (transactionDates.length === 0) {
+      return Promise.resolve([]);
+    }
+
+    return Transaction.findAll({
+      attributes: ['transactionDate', 'amount'],
+      where: { userId, transactionDate: { [Op.in]: transactionDates } },
     });
   }
 
-  public getChargesForVendor(
+  public getChargesForVendors(
     userId: string,
-    vendorId: string,
+    vendorIds: string[],
   ): Promise<Transaction[]> {
+    if (vendorIds.length === 0) {
+      return Promise.resolve([]);
+    }
+
     return Transaction.findAll({
-      where: { userId, vendorId },
-      attributes: ['amount', 'currency', 'transactionDate'],
+      where: { userId, vendorId: { [Op.in]: vendorIds } },
+      attributes: ['vendorId', 'amount', 'currency', 'transactionDate'],
     });
   }
 

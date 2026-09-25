@@ -17,6 +17,7 @@ import { LeakResponseModule } from '@Modules/leak-response/leak-response.module'
 import { StatementImportModule } from '@Modules/statement-import/statement-import.module';
 import { VendorClassifierModule } from '@Modules/vendor-classifier/vendor-classifier.module';
 import { CancellationAgentModule } from '@Modules/cancellation-agent/cancellation-agent.module';
+import { CancellationContactModule } from '@Modules/cancellation-contact/cancellation-contact.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { CancellationAgentModule } from '@Modules/cancellation-agent/cancellatio
     StatementImportModule,
     DraftActionModule,
     CancellationAgentModule,
+    CancellationContactModule,
     LeakResponseModule,
   ],
   controllers: [AppController],

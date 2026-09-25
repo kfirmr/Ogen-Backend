@@ -38,6 +38,20 @@ export class VendorAliasRepository {
     return VendorAlias.create(data, { transaction });
   }
 
+  public async bulkCreateIgnoringDuplicates(
+    records: TCreateVendorAlias[],
+    transaction?: Transaction,
+  ): Promise<void> {
+    if (records.length === 0) {
+      return;
+    }
+
+    await VendorAlias.bulkCreate(records, {
+      transaction,
+      ignoreDuplicates: true,
+    });
+  }
+
   public delete(id: string, transaction?: Transaction): Promise<number> {
     return VendorAlias.destroy({ where: { id }, transaction });
   }

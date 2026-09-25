@@ -1,12 +1,23 @@
+import {
+  Op,
+  fn,
+  col,
+  where,
+  Sequelize,
+  QueryTypes,
+  Transaction,
+} from 'sequelize';
+
+import {
+  IVendor,
+  TCreateVendor,
+  ISimilarNamePair,
+  ISimilarVendorMatch,
+} from './interfaces/vendor.interface';
+
 import { Vendor } from './entities/vendor.entity';
 import { Injectable, Inject } from '@nestjs/common';
 import { ProviderNames } from '@Providers/database/provider-names';
-import { IVendor, TCreateVendor } from './interfaces/vendor.interface';
-import { fn, col, where, QueryTypes, Sequelize, Transaction } from 'sequelize';
-
-interface ISimilarVendorRow {
-  id: string;
-}
 
 @Injectable()
 export class VendorRepository {
@@ -36,32 +47,96 @@ export class VendorRepository {
     });
   }
 
+  public findByIds(
+    ids: string[],
+    transaction?: Transaction,
+  ): Promise<Vendor[]> {
+    if (ids.length === 0) {
+      return Promise.resolve([]);
+    }
+
+    return Vendor.findAll({ where: { id: { [Op.in]: ids } }, transaction });
+  }
+
+  public findByLowerNames(
+    names: string[],
+    transaction?: Transaction,
+  ): Promise<Vendor[]> {
+    if (names.length === 0) {
+      return Promise.resolve([]);
+    }
+
+    return Vendor.findAll({
+      where: where(fn('lower', col('name')), {
+        [Op.in]: names.map((name) => name.toLowerCase()),
+      }),
+      transaction,
+    });
+  }
+
   // Catches vendor names the AI extracted slightly differently across calls for the same
-  // merchant (e.g. "Gym City" vs "GymCity Ltd"), so they resolve to one vendor instead of
-  // silently spawning a duplicate vendor and, downstream, a duplicate subscription.
-  public async findSimilarByName(
-    name: string,
+  // merchant (e.g. "Gym City" vs "GymCity Ltd"). The % operator is what lets Postgres use the
+  // lower(name) trigram index; the similarity filter then applies the stricter threshold.
+  public findSimilarToNames(
+    names: string[],
     minimumSimilarity: number,
     transaction?: Transaction,
-  ): Promise<Vendor | null> {
-    const [match] = await this.sequelize.query<ISimilarVendorRow>(
-      `SELECT id
-       FROM vendors
-       WHERE similarity(lower(name), lower(:name)) >= :minimumSimilarity
-       ORDER BY similarity(lower(name), lower(:name)) DESC
-       LIMIT 1`,
+  ): Promise<ISimilarVendorMatch[]> {
+    if (names.length === 0) {
+      return Promise.resolve([]);
+    }
+
+    return this.sequelize.query<ISimilarVendorMatch>(
+      `SELECT DISTINCT ON (candidate.name)
+         candidate.name AS "queryName",
+         vendors.id AS "vendorId"
+       FROM unnest(ARRAY[:names]::text[]) AS candidate(name)
+       JOIN vendors ON lower(vendors.name) % lower(candidate.name)
+       WHERE similarity(lower(vendors.name), lower(candidate.name)) >= :minimumSimilarity
+       ORDER BY candidate.name,
+         similarity(lower(vendors.name), lower(candidate.name)) DESC`,
       {
-        replacements: { name, minimumSimilarity },
+        replacements: { names, minimumSimilarity },
         type: QueryTypes.SELECT,
         transaction,
       },
     );
+  }
 
-    if (match == null) {
-      return null;
+  // Pairs up names within one import that refer to the same merchant, so a file introducing
+  // "Gym City" and "GymCity Ltd" together still creates a single vendor.
+  public findSimilarNamePairs(
+    names: string[],
+    minimumSimilarity: number,
+    transaction?: Transaction,
+  ): Promise<ISimilarNamePair[]> {
+    if (names.length < 2) {
+      return Promise.resolve([]);
     }
 
-    return this.findById(match.id, transaction);
+    return this.sequelize.query<ISimilarNamePair>(
+      `SELECT first.name AS "firstName", second.name AS "secondName"
+       FROM unnest(ARRAY[:names]::text[]) WITH ORDINALITY AS first(name, position)
+       JOIN unnest(ARRAY[:names]::text[]) WITH ORDINALITY AS second(name, position)
+         ON first.position < second.position
+       WHERE similarity(lower(first.name), lower(second.name)) >= :minimumSimilarity`,
+      {
+        replacements: { names, minimumSimilarity },
+        type: QueryTypes.SELECT,
+        transaction,
+      },
+    );
+  }
+
+  public async bulkCreateIgnoringDuplicates(
+    records: TCreateVendor[],
+    transaction?: Transaction,
+  ): Promise<void> {
+    if (records.length === 0) {
+      return;
+    }
+
+    await Vendor.bulkCreate(records, { transaction, ignoreDuplicates: true });
   }
 
   public create(
@@ -69,6 +144,25 @@ export class VendorRepository {
     transaction?: Transaction,
   ): Promise<Vendor> {
     return Vendor.create(data, { transaction });
+  }
+
+  public findWithStaleCancellationContact(
+    vendorIds: string[],
+    checkedBefore: Date,
+  ): Promise<Vendor[]> {
+    if (vendorIds.length === 0) {
+      return Promise.resolve([]);
+    }
+
+    return Vendor.findAll({
+      where: {
+        id: { [Op.in]: vendorIds },
+        [Op.or]: [
+          { cancellationCheckedAt: null },
+          { cancellationCheckedAt: { [Op.lt]: checkedBefore } },
+        ],
+      },
+    });
   }
 
   public update(

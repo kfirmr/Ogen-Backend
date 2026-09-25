@@ -49,6 +49,11 @@ import { StatementImport } from '@Modules/statement-import/entities/statement-im
       fields: ['user_id', 'transaction_date', 'amount'],
     },
     { name: 'idx_transactions_import', fields: ['import_id'] },
+    {
+      name: 'idx_transactions_user_vendor',
+      fields: ['user_id', 'vendor_id'],
+      where: { deleted_at: null },
+    },
   ],
 })
 export class Transaction

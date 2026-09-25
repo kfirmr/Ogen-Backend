@@ -16,6 +16,7 @@ import { TypedLogger } from '../../logger/logger.service';
 import { AiProviderNames } from '@Providers/ai/provider-names';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { hasStandingOrderMarker } from './utilities/standing-order.utility';
+import { TChargeKind } from '@Modules/vendor/constants/charge-kind.constant';
 import { IVendorClassification } from './interfaces/vendor-classification.interface';
 
 interface IIndexedDescription {
@@ -124,8 +125,14 @@ export class VendorClassifierService {
     originalDescription: string,
     classification: IVendorClassification,
   ): IVendorClassification {
-    if (hasStandingOrderMarker(originalDescription)) {
-      return { ...classification, isLikelySubscription: true };
+    const isStandingOrder = hasStandingOrderMarker(originalDescription);
+    const isClassifiedOneOff =
+      classification.chargeKind === TChargeKind.ONE_OFF;
+
+    // A standing order proves the charge repeats, but an essential bill paid by standing order
+    // (electricity, water) must stay an essential bill, so only a ONE_OFF guess is overridden.
+    if (isStandingOrder && isClassifiedOneOff) {
+      return { ...classification, chargeKind: TChargeKind.SUBSCRIPTION };
     }
 
     return classification;

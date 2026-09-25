@@ -14,3 +14,8 @@ export type TCreateVendorAlias = Optional<
   IVendorAlias,
   'id' | 'createdAt' | 'updatedAt'
 >;
+
+export interface IVendorAliasSource {
+  vendorId: string;
+  description: string;
+}

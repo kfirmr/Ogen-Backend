@@ -48,15 +48,42 @@ export class SubscriptionRepository {
     return { items, nextCursor: buildNextCursor(items, batchSize) };
   }
 
-  public findFirstActiveByVendor(
+  public findActiveByVendors(
     userId: string,
-    vendorId: string,
-    transaction?: Transaction,
-  ): Promise<Subscription | null> {
-    return Subscription.findOne({
-      where: { userId, vendorId, status: TSubscriptionStatus.ACTIVE },
-      transaction,
+    vendorIds: string[],
+  ): Promise<Subscription[]> {
+    if (vendorIds.length === 0) {
+      return Promise.resolve([]);
+    }
+
+    return Subscription.findAll({
+      attributes: ['id', 'vendorId'],
+      order: [['createdAt', 'ASC']],
+      where: {
+        userId,
+        status: TSubscriptionStatus.ACTIVE,
+        vendorId: { [Op.in]: vendorIds },
+      },
     });
+  }
+
+  public async getActiveVendorIds(userId: string): Promise<string[]> {
+    const subscriptions = await Subscription.findAll({
+      attributes: ['vendorId'],
+      where: {
+        userId,
+        vendorId: { [Op.ne]: null },
+        status: TSubscriptionStatus.ACTIVE,
+      },
+    });
+
+    return [
+      ...new Set(
+        subscriptions
+          .map((subscription) => subscription.vendorId)
+          .filter((vendorId): vendorId is string => vendorId != null),
+      ),
+    ];
   }
 
   public getActiveByServiceType(

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { MONEY_REGEX } from '@Constants/money';
+import { TChargeKind } from '@Modules/vendor/constants/charge-kind.constant';
 import { TServiceType } from '@Modules/vendor/constants/service-type.constant';
 import { TVendorCategory } from '@Modules/vendor/constants/vendor-category.constant';
 import { TBillingCycle } from '@Modules/subscription/constants/billing-cycle.constant';
@@ -12,19 +13,21 @@ export const CLASSIFICATION_SYSTEM_PROMPT = `You classify a single raw bank-tran
 
 - vendorName: a clean, human-readable merchant name (e.g. "Netflix", not "NETFLIX.COM* 1234").
 - category: the closest fit from the given category enum; use GROCERIES for supermarkets, grocery, and convenience stores (e.g. Carrefour, Super-Pharm groceries, a local mini-market); use DINING for restaurants, cafes, bars, and food delivery/takeout; use TRANSPORTATION for taxis, ride-hailing, and public transit; use FUEL_ENERGY for gas stations and home energy providers; use SHOPPING_APPAREL for clothing, shoes, and general retail; use ELECTRONICS for phones, computers, and appliances; use HOME_DESIGN for furniture, décor, and home-improvement stores; use COSMETICS for beauty, skincare, and personal-care products; use PETS for pet food, supplies, and veterinary care; use KIDS_EDUCATION for childcare, tuition, and school supplies; use BOOKS_PRINT for books, stationery, and printing services; use LEISURE_SPORTS for hobbies, sporting goods, and entertainment venues; use TRAVEL_VACATIONS for flights, hotels, and trip bookings; use GOVERNMENT for taxes, fines, and municipal payments; use FINANCIAL_FEES for bank charges, ATM fees, and interest charges; use DEBT_REPAYMENT for loan and credit repayments; use MONEY_TRANSFER for P2P transfers and money-transfer services; use OTHER only when nothing else fits.
-- isLikelySubscription: default to false. Only set true when you are confident this specific charge is an ongoing recurring plan with a fixed billing cycle — a streaming/software plan, an insurance policy, a utility or communication bill, or a fitness/studio MEMBERSHIP (not a single class, drop-in visit, or day pass). Treat the Hebrew suffix "הו״ק" or the phrase "הוראת קבע" (a standing bank order) anywhere in the description as a strong signal of a recurring charge — the bank itself is telling you this specific charge repeats — so lean toward true for those unless the vendor is clearly a one-off use case. Never mark true for a one-off retail or e-commerce purchase (a single Amazon/online-store order, a single grocery run, a single item bought at a shop, a cash withdrawal, a P2P transfer) even if the vendor also happens to sell subscriptions elsewhere. If the amount looks more like a one-time purchase or a small ad-hoc fee than a real plan price, mark false. When genuinely unsure, mark false.
-- billingCycle: your best guess at how often it recurs, or null if isLikelySubscription is false or the cadence is unclear.
-- cancellationEmail: a real, well-known cancellation/support email for this vendor ONLY if you are highly confident it is accurate. Otherwise null. Never invent or guess an email address.
+- chargeKind: what kind of charge this is. Default to ONE_OFF.
+  - SUBSCRIPTION: an ongoing plan the user signed up for and could cancel with the vendor — a streaming/software/app plan, a digital service, or a fitness/studio MEMBERSHIP (not a single class, drop-in visit, or day pass). Only choose it when you are confident this specific charge is such a plan.
+  - ESSENTIAL_BILL: a recurring household bill for an essential or regulated service that is not "cancelled" but only paid or switched between providers — electricity (e.g. חברת החשמל), water corporations (e.g. מי רמת גן, מי אביבים), gas, municipal property tax (ארנונה) and other government or municipal payments, any insurance policy (health, car, home, life, pension-linked), and mobile, internet, landline, or TV communication lines. Always choose ESSENTIAL_BILL for these, even when the charge is a standing order.
+  - ONE_OFF: everything else — a single retail or e-commerce purchase, a grocery run, a restaurant, fuel, a cash withdrawal, a P2P transfer, a small ad-hoc fee — even if the vendor also sells subscriptions elsewhere. When genuinely unsure, choose ONE_OFF.
+  The Hebrew suffix "הו״ק" or the phrase "הוראת קבע" (a standing bank order) means the bank itself says this charge repeats: prefer SUBSCRIPTION over ONE_OFF for those, but never over ESSENTIAL_BILL.
+- billingCycle: your best guess at how often it recurs, or null if chargeKind is ONE_OFF or the cadence is unclear.
 - estimatedAveragePrice: your best estimate, in ILS, of the typical/average price for this exact vendor's subscription or service, as a plain decimal string with up to 2 decimal places (e.g. "39.90") — ONLY if you are reasonably confident. Otherwise null. Never invent or guess a number.
 - serviceType: the specific interchangeable service the user is paying for, so that two vendors offering the same service share the same value (e.g. Netflix and Disney+ are both VIDEO_STREAMING; Gold's Gym and Icon Fitness are both GYM_MEMBERSHIP). Use NONE whenever the vendor is not one of the listed services, or when a household would reasonably pay several such vendors at once (utilities, communication lines, insurance policies).`;
 
 export const VendorClassificationSchema = z.object({
   vendorName: z.string().min(1),
   category: z.nativeEnum(TVendorCategory),
-  isLikelySubscription: z.boolean(),
+  chargeKind: z.nativeEnum(TChargeKind),
   serviceType: z.nativeEnum(TServiceType),
   billingCycle: z.nativeEnum(TBillingCycle).nullable(),
-  cancellationEmail: z.string().nullable(),
   estimatedAveragePrice: z.string().regex(MONEY_REGEX.AMOUNT).nullable(),
 });
 

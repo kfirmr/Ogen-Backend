@@ -9,6 +9,7 @@ import { VendorAliasModule } from '@Modules/vendor-alias/vendor-alias.module';
 import { SubscriptionModule } from '@Modules/subscription/subscription.module';
 import { LeakResponseModule } from '@Modules/leak-response/leak-response.module';
 import { VendorClassifierModule } from '@Modules/vendor-classifier/vendor-classifier.module';
+import { CancellationContactModule } from '@Modules/cancellation-contact/cancellation-contact.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { VendorClassifierModule } from '@Modules/vendor-classifier/vendor-classi
     TransactionModule,
     VendorClassifierModule,
     LeakResponseModule,
+    CancellationContactModule,
   ],
   controllers: [StatementImportController],
   exports: [StatementImportService],

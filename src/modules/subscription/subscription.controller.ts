@@ -17,6 +17,7 @@ import { CurrentUser } from '@Decorators/current-user.decorator';
 import { GetSubscriptionsDto } from './dto/get-subscriptions.dto';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
+import { RequestCancellationDto } from './dto/request-cancellation.dto';
 
 @ApiTags('subscription')
 @Controller('subscription')
@@ -43,8 +44,9 @@ export class SubscriptionController {
   public requestCancellation(
     @CurrentUser() userId: string,
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() data: RequestCancellationDto,
   ): Promise<Subscription> {
-    return this.subscriptionService.requestCancellation(id, userId);
+    return this.subscriptionService.requestCancellation(id, userId, data);
   }
 
   @Get(':id')

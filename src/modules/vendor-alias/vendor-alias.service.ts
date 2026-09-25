@@ -4,12 +4,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
+import { Transaction } from 'sequelize';
 import { VendorAlias } from './entities/vendor-alias.entity';
 import { VendorService } from '@Modules/vendor/vendor.service';
-import { Transaction, UniqueConstraintError } from 'sequelize';
 import { VendorAliasRepository } from './vendor-alias.repository';
 import { CreateVendorAliasDto } from './dto/create-vendor-alias.dto';
 import { normalizeDescription } from './utilities/description.utility';
+import { IVendorAliasSource } from './interfaces/vendor-alias.interface';
 
 @Injectable()
 export class VendorAliasService {
@@ -39,34 +40,18 @@ export class VendorAliasService {
     });
   }
 
-  public async createIdempotent(
-    description: string,
-    vendorId: string,
+  // Existing patterns are left untouched, so re-importing a known description is a no-op.
+  public async createManyIdempotent(
+    aliases: IVendorAliasSource[],
     transaction?: Transaction,
-  ): Promise<string> {
-    const pattern = normalizeDescription(description);
-
-    try {
-      const alias = await this.vendorAliasRepository.create(
-        { pattern, vendorId },
-        transaction,
-      );
-
-      return alias.vendorId;
-    } catch (error) {
-      if (error instanceof UniqueConstraintError) {
-        const existingAlias = await this.vendorAliasRepository.findByPattern(
-          pattern,
-          transaction,
-        );
-
-        if (existingAlias != null) {
-          return existingAlias.vendorId;
-        }
-      }
-
-      throw error;
-    }
+  ): Promise<void> {
+    await this.vendorAliasRepository.bulkCreateIgnoringDuplicates(
+      aliases.map((alias) => ({
+        vendorId: alias.vendorId,
+        pattern: normalizeDescription(alias.description),
+      })),
+      transaction,
+    );
   }
 
   public async delete(id: string): Promise<void> {

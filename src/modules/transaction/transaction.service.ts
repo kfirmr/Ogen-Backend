@@ -1,8 +1,14 @@
+import {
+  IRecurrence,
+  IRecurrenceRequest,
+} from './interfaces/recurrence.interface';
+
+import { groupBy } from '@Utilities/array.utility';
 import { TypedLogger } from '../../logger/logger.service';
 import { IBatchResult } from '@Interfaces/batch.interface';
 import { Transaction } from './entities/transaction.entity';
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { IRecurrence } from './interfaces/recurrence.interface';
+import { buildDedupeKey } from './utilities/dedupe-key.utility';
 import { Transaction as SequelizeTransaction } from 'sequelize';
 import { GetTransactionsDto } from './dto/get-transactions.dto';
 import { TransactionRepository } from './transaction.repository';
@@ -65,30 +71,41 @@ export class TransactionService {
     }
   }
 
-  public async isDuplicate(
+  public async getExistingDedupeKeys(
     userId: string,
-    transactionDate: string,
-    amount: string,
-  ): Promise<boolean> {
-    const duplicate = await this.transactionRepository.findDuplicateForImport(
-      userId,
-      transactionDate,
-      amount,
-    );
+    transactionDates: string[],
+  ): Promise<Set<string>> {
+    const transactions = await this.transactionRepository.findByDates(userId, [
+      ...new Set(transactionDates),
+    ]);
 
-    return duplicate != null;
+    return new Set(
+      transactions.map((transaction) =>
+        buildDedupeKey(transaction.transactionDate, transaction.amount),
+      ),
+    );
   }
 
-  public async detectRecurrenceForVendor(
+  // One query covers every vendor in the import; the recurrence rules then run in memory.
+  public async detectRecurrenceForVendors(
     userId: string,
-    vendorId: string,
-  ): Promise<IRecurrence | null> {
-    const charges = await this.transactionRepository.getChargesForVendor(
+    requests: IRecurrenceRequest[],
+  ): Promise<Map<string, IRecurrence | null>> {
+    const charges = await this.transactionRepository.getChargesForVendors(
       userId,
-      vendorId,
+      requests.map((request) => request.vendorId),
     );
+    const chargesByVendorId = groupBy(charges, (charge) => charge.vendorId);
 
-    return detectRecurrence(charges);
+    return new Map(
+      requests.map((request) => [
+        request.vendorId,
+        detectRecurrence(
+          chargesByVendorId.get(request.vendorId) ?? [],
+          request.requiredCharges,
+        ),
+      ]),
+    );
   }
 
   public async linkUnassignedVendorCharges(

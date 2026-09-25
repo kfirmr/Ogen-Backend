@@ -52,6 +52,19 @@ Enum billing_cycle {
   YEARLY
 }
 
+Enum cancellation_method {
+  WEB
+  EMAIL
+  PHONE
+  IN_APP
+}
+
+Enum charge_kind {
+  ONE_OFF
+  SUBSCRIPTION
+  ESSENTIAL_BILL
+}
+
 Enum subscription_status {
   ACTIVE
   CANCELLATION_REQUESTED
@@ -114,19 +127,25 @@ Table users {
 Table vendors {
   id uuid [pk, default: `gen_random_uuid()`]
   name varchar(255) [not null, unique, note: 'Vendor name (e.g., Netflix, HOT)']
-  cancellation_email varchar(255) [null, note: 'Official email for cancellation requests']
+  cancellation_email varchar(255) [null, note: 'Email the vendor publishes for cancellation requests, found by the web contact lookup']
+  cancellation_method cancellation_method [null, note: 'Primary way this vendor is cancelled']
+  cancellation_url varchar(2048) [null, note: 'Cancellation or account page for WEB / IN_APP']
+  cancellation_phone varchar(32) [null, note: 'Cancellation phone line for PHONE']
+  cancellation_source_url varchar(2048) [null, note: 'Page the cancellation contact was found on']
+  cancellation_checked_at timestamptz [null, note: 'Last contact lookup; re-checked after 90 days, null = never looked up']
   average_market_price decimal(12,2) [null, note: 'Market benchmark price']
   currency char(3) [not null, default: 'ILS', note: 'ISO 4217 currency of average_market_price']
   category vendor_category [null]
   service_type service_type [null, note: 'Interchangeable service this vendor sells; two vendors sharing it are redundant. NONE when several such vendors are legitimate']
-  is_likely_subscription boolean [null, note: 'AI classifier guess from the first charge; a subscription is only created once a second real charge confirms it']
-  billing_cycle billing_cycle [null, note: 'AI classifier guess at cadence, used only once is_likely_subscription is confirmed by a second charge']
+  charge_kind charge_kind [null, note: 'AI classifier guess: SUBSCRIPTION lowers the evidence needed to confirm a subscription, ESSENTIAL_BILL never becomes one']
+  billing_cycle billing_cycle [null, note: 'AI classifier guess at cadence, used when a standing order confirms a subscription from a single charge']
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz [not null, default: `now()`]
 
   indexes {
     service_type [name: 'idx_vendors_service_type']
-    name [type: gin, name: 'idx_vendors_name_trgm', note: 'pg_trgm index backing fuzzy vendor-name matching']
+    `lower(name)` [name: 'idx_vendors_name_lower', note: 'Case-insensitive exact vendor-name matching']
+    `lower(name)` [type: gin, name: 'idx_vendors_name_lower_trgm', note: 'pg_trgm (gin_trgm_ops) index backing the % fuzzy vendor-name match']
   }
 }
 
@@ -172,6 +191,7 @@ Table subscriptions {
   next_charge_date date [null]
   cancellation_requested_at timestamptz [null, note: 'Set when the cancellation email is sent']
   cancelled_at timestamptz [null]
+  cancellation_email varchar(255) [null, note: 'Address the user sent their cancellation request to']
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz [not null, default: `now()`]
   deleted_at timestamptz [null]
@@ -205,6 +225,7 @@ Table transactions {
     (user_id, subscription_id) [name: 'idx_transactions_user_subscription']
     (user_id, transaction_date, amount) [name: 'idx_transactions_dedupe_lookup', note: 'Supports import-time duplicate detection when external_id is absent']
     import_id [name: 'idx_transactions_import', note: 'Supports undoing a whole import']
+    (user_id, vendor_id) [name: 'idx_transactions_user_vendor', note: 'Partial: WHERE deleted_at IS NULL. Supports batched recurrence detection and per-vendor spending baselines']
   }
 }
 
