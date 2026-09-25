@@ -12,7 +12,18 @@ export interface IRecurrence {
   billingCycle: TBillingCycle;
 }
 
+export interface IRecurrenceRequest {
+  vendorId: string;
+  requiredCharges: number;
+}
+
+export interface IEvidenceRule {
+  requiredCharges: number;
+  maxToleranceDays: number;
+}
+
 export interface IBillingCycleWindow {
   expectedDays: number;
   toleranceDays: number;
+  maxGapSpreadDays: number;
 }

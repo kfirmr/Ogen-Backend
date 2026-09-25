@@ -5,6 +5,11 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 
+import {
+  TBillingCycle,
+  DEFAULT_BILLING_CYCLE,
+} from './constants/billing-cycle.constant';
+
 import { Sequelize, Transaction } from 'sequelize';
 import { TypedLogger } from '../../logger/logger.service';
 import { IBatchResult } from '@Interfaces/batch.interface';
@@ -13,11 +18,11 @@ import { VendorService } from '@Modules/vendor/vendor.service';
 import { GetSubscriptionsDto } from './dto/get-subscriptions.dto';
 import { SubscriptionRepository } from './subscription.repository';
 import { ProviderNames } from '@Providers/database/provider-names';
-import { TBillingCycle } from './constants/billing-cycle.constant';
 import { XP_ACTION_KEYS } from '@Constants/xp-action-keys.constant';
 import { XpEventService } from '@Modules/xp-event/xp-event.service';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
+import { RequestCancellationDto } from './dto/request-cancellation.dto';
 import { TServiceType } from '@Modules/vendor/constants/service-type.constant';
 import { TSubscriptionStatus } from './constants/subscription-status.constant';
 
@@ -90,16 +95,28 @@ export class SubscriptionService {
     }
   }
 
-  public findFirstActiveByVendor(
+  // Keyed by vendor, keeping each vendor's oldest active subscription.
+  public async getActiveIdsByVendor(
     userId: string,
-    vendorId: string,
-    transaction?: Transaction,
-  ): Promise<Subscription | null> {
-    return this.subscriptionRepository.findFirstActiveByVendor(
+    vendorIds: string[],
+  ): Promise<Map<string, string>> {
+    const subscriptions = await this.subscriptionRepository.findActiveByVendors(
       userId,
-      vendorId,
-      transaction,
+      vendorIds,
     );
+
+    return subscriptions.reduce((idsByVendor, subscription) => {
+      const vendorId = subscription.vendorId;
+      const isFirstForVendor = vendorId != null && !idsByVendor.has(vendorId);
+
+      return isFirstForVendor
+        ? idsByVendor.set(vendorId, subscription.id)
+        : idsByVendor;
+    }, new Map<string, string>());
+  }
+
+  public getActiveVendorIds(userId: string): Promise<string[]> {
+    return this.subscriptionRepository.getActiveVendorIds(userId);
   }
 
   public getActiveByServiceType(
@@ -122,7 +139,7 @@ export class SubscriptionService {
     billingCycle: TBillingCycle | null,
     transaction: Transaction,
   ): Promise<Subscription> {
-    const resolvedBillingCycle = billingCycle ?? TBillingCycle.MONTHLY;
+    const resolvedBillingCycle = billingCycle ?? DEFAULT_BILLING_CYCLE;
 
     const existingSubscription =
       await this.subscriptionRepository.findActiveMatch(
@@ -177,6 +194,7 @@ export class SubscriptionService {
   public async requestCancellation(
     id: string,
     userId: string,
+    data: RequestCancellationDto,
   ): Promise<Subscription> {
     const subscription = await this.getById(id, userId);
 
@@ -188,6 +206,7 @@ export class SubscriptionService {
 
     await this.subscriptionRepository.update(id, {
       cancellationRequestedAt: new Date(),
+      cancellationEmail: data.cancellationEmail ?? null,
       status: TSubscriptionStatus.CANCELLATION_REQUESTED,
     });
 

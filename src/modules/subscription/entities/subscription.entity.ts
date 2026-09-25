@@ -90,6 +90,10 @@ export class Subscription
   declare cancellationRequestedAt: Date | null;
 
   @AllowNull(true)
+  @Column({ type: DataType.STRING(DATA_LENGTHS.EMAIL) })
+  declare cancellationEmail: string | null;
+
+  @AllowNull(true)
   @Column({ type: DataType.DATE })
   declare cancelledAt: Date | null;
 

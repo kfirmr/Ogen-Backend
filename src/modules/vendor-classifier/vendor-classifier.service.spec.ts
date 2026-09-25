@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { VendorClassifierService } from './vendor-classifier.service';
+import { TChargeKind } from '@Modules/vendor/constants/charge-kind.constant';
 import { TVendorCategory } from '@Modules/vendor/constants/vendor-category.constant';
 import { TBillingCycle } from '@Modules/subscription/constants/billing-cycle.constant';
 import { CLASSIFICATION_BATCH_SIZE } from './constants/vendor-classification.constant';
@@ -26,9 +27,8 @@ const buildSequencedClient = (parsedOutputs: unknown[]) => {
 const buildRawClassification = (overrides: Record<string, unknown> = {}) => ({
   vendorName: 'Netflix',
   category: TVendorCategory.STREAMING,
-  isLikelySubscription: true,
+  chargeKind: TChargeKind.SUBSCRIPTION,
   billingCycle: TBillingCycle.MONTHLY,
-  cancellationEmail: null,
   estimatedAveragePrice: '39.90',
   ...overrides,
 });
@@ -39,9 +39,8 @@ describe('VendorClassifierService', () => {
       const classification = {
         vendorName: 'Netflix',
         category: TVendorCategory.STREAMING,
-        isLikelySubscription: true,
+        chargeKind: TChargeKind.SUBSCRIPTION,
         billingCycle: TBillingCycle.MONTHLY,
-        cancellationEmail: null,
         estimatedAveragePrice: '39.90',
       };
       const { client, parse } = buildClient(classification);
@@ -66,13 +65,12 @@ describe('VendorClassifierService', () => {
       expect(result).toBeNull();
     });
 
-    it('forces isLikelySubscription true when the description marks a standing order', async () => {
+    it('promotes a ONE_OFF guess to SUBSCRIPTION when the description marks a standing order', async () => {
       const classification = {
         vendorName: 'Space Givatayim',
         category: TVendorCategory.FITNESS,
-        isLikelySubscription: false,
+        chargeKind: TChargeKind.ONE_OFF,
         billingCycle: null,
-        cancellationEmail: null,
         estimatedAveragePrice: null,
       };
       const { client } = buildClient(classification);
@@ -80,7 +78,26 @@ describe('VendorClassifierService', () => {
 
       const result = await service.classify('ספייס גבעתיים-הו"ק');
 
-      expect(result).toEqual({ ...classification, isLikelySubscription: true });
+      expect(result).toEqual({
+        ...classification,
+        chargeKind: TChargeKind.SUBSCRIPTION,
+      });
+    });
+
+    it('keeps an essential bill paid by standing order as ESSENTIAL_BILL', async () => {
+      const classification = {
+        vendorName: 'Israel Electric Company',
+        category: TVendorCategory.UTILITIES,
+        chargeKind: TChargeKind.ESSENTIAL_BILL,
+        billingCycle: null,
+        estimatedAveragePrice: null,
+      };
+      const { client } = buildClient(classification);
+      const service = new VendorClassifierService(client);
+
+      const result = await service.classify('חברת החשמל לישראל-הו"ק');
+
+      expect(result).toEqual(classification);
     });
   });
 
@@ -137,7 +154,7 @@ describe('VendorClassifierService', () => {
       const { client } = buildClient({
         classifications: [
           {
-            ...buildRawClassification({ isLikelySubscription: false }),
+            ...buildRawClassification({ chargeKind: TChargeKind.ONE_OFF }),
             index: 0,
           },
         ],
@@ -147,7 +164,7 @@ describe('VendorClassifierService', () => {
       const result = await service.classifyBatch(['ספייס גבעתיים-הו"ק']);
 
       expect(result[0]).toEqual(
-        expect.objectContaining({ isLikelySubscription: true }),
+        expect.objectContaining({ chargeKind: TChargeKind.SUBSCRIPTION }),
       );
     });
 

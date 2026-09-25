@@ -17,6 +17,7 @@ export interface ISubscription {
   status: TSubscriptionStatus;
   billingCycle: TBillingCycle;
   nextChargeDate: string | null;
+  cancellationEmail: string | null;
   cancellationRequestedAt: Date | null;
 }
 
@@ -30,5 +31,6 @@ export type TCreateSubscription = Optional<
   | 'deletedAt'
   | 'cancelledAt'
   | 'billingCycle'
+  | 'cancellationEmail'
   | 'cancellationRequestedAt'
 >;

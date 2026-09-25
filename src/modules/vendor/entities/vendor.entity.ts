@@ -12,6 +12,11 @@ import {
 } from 'sequelize-typescript';
 
 import {
+  TChargeKind,
+  CHARGE_KIND_VALUES,
+} from '../constants/charge-kind.constant';
+
+import {
   TServiceType,
   SERVICE_TYPE_VALUES,
 } from '../constants/service-type.constant';
@@ -20,6 +25,11 @@ import {
   TVendorCategory,
   VENDOR_CATEGORY_VALUES,
 } from '../constants/vendor-category.constant';
+
+import {
+  TCancellationMethod,
+  CANCELLATION_METHOD_VALUES,
+} from '../constants/cancellation-method.constant';
 
 import {
   TBillingCycle,
@@ -47,6 +57,26 @@ export class Vendor extends Model<IVendor, TCreateVendor> implements IVendor {
   declare cancellationEmail: string | null;
 
   @AllowNull(true)
+  @Column({ type: DataType.ENUM, values: CANCELLATION_METHOD_VALUES })
+  declare cancellationMethod: TCancellationMethod | null;
+
+  @AllowNull(true)
+  @Column({ type: DataType.STRING(DATA_LENGTHS.URL) })
+  declare cancellationUrl: string | null;
+
+  @AllowNull(true)
+  @Column({ type: DataType.STRING(DATA_LENGTHS.PHONE) })
+  declare cancellationPhone: string | null;
+
+  @AllowNull(true)
+  @Column({ type: DataType.STRING(DATA_LENGTHS.URL) })
+  declare cancellationSourceUrl: string | null;
+
+  @AllowNull(true)
+  @Column({ type: DataType.DATE })
+  declare cancellationCheckedAt: Date | null;
+
+  @AllowNull(true)
   @Column({
     type: DataType.DECIMAL(MONEY_PRECISION.DIGITS, MONEY_PRECISION.DECIMALS),
   })
@@ -66,8 +96,8 @@ export class Vendor extends Model<IVendor, TCreateVendor> implements IVendor {
   declare serviceType: TServiceType | null;
 
   @AllowNull(true)
-  @Column({ type: DataType.BOOLEAN })
-  declare isLikelySubscription: boolean | null;
+  @Column({ type: DataType.ENUM, values: CHARGE_KIND_VALUES })
+  declare chargeKind: TChargeKind | null;
 
   @AllowNull(true)
   @Column({ type: DataType.ENUM, values: BILLING_CYCLE_VALUES })
