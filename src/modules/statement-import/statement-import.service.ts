@@ -6,14 +6,14 @@ import {
 } from '@nestjs/common';
 
 import {
-  parseTransactionRows,
-  IParsedTransactionRow,
-} from './utilities/xlsx-parser.utility';
-
-import {
   TImportStatus,
   TERMINAL_IMPORT_STATUSES,
 } from './constants/import-status.constant';
+
+import {
+  IBankImportRequest,
+  IImportTransactionRow,
+} from './interfaces/statement-import.interface';
 
 import {
   pickLatestCharge,
@@ -41,6 +41,7 @@ import { normalizeError } from '../../utilities/normalize-error.utility';
 import { GetStatementImportsDto } from './dto/get-statement-imports.dto';
 import { toVendorNameEntry } from './utilities/vendor-name-entry.utility';
 import { StatementImportRepository } from './statement-import.repository';
+import { TChargeKind } from '@Modules/vendor/constants/charge-kind.constant';
 import { CreateStatementImportDto } from './dto/create-statement-import.dto';
 import { TransactionService } from '@Modules/transaction/transaction.service';
 import { VendorAliasService } from '@Modules/vendor-alias/vendor-alias.service';
@@ -85,7 +86,13 @@ interface IRowLookups {
 
 interface IRecurrenceCandidate {
   vendor: Vendor;
+  description: string;
   standingOrderCharge: IRecurringCharge | null;
+}
+
+interface IConfirmedRecurrence {
+  recurrence: IRecurrence;
+  candidate: IRecurrenceCandidate;
 }
 
 @Injectable()
@@ -136,28 +143,17 @@ export class StatementImportService {
     });
   }
 
-  // Returns as soon as the import is recorded and marked PROCESSING; the actual parsing,
-  // classification, insertion, and leak detection continue in the background via waitUntil
-  // (see failImport for why a crash there still has to reach the row instead of vanishing).
-  public async startUpload(
+  // Returns as soon as the import is recorded and marked PROCESSING; classification, insertion,
+  // and leak detection continue in the background via waitUntil (see failImport for why a crash
+  // there still has to reach the row instead of vanishing).
+  public async startBankImport(
     userId: string,
-    file: Express.Multer.File,
+    data: IBankImportRequest,
   ): Promise<StatementImport> {
-    if (file == null) {
-      throw new BadRequestException('No file uploaded');
-    }
-
-    const { rows, parseErrors, headerError } = parseTransactionRows(
-      file.buffer,
-    );
-
-    if (headerError != null) {
-      throw new BadRequestException(headerError);
-    }
-
-    const statementImport = await this.create(userId, {
-      source: TImportSource.XLSX,
-      filename: file.originalname,
+    const statementImport = await this.statementImportRepository.create({
+      userId,
+      source: TImportSource.BANK_API,
+      bankConnectionId: data.bankConnectionId,
     });
 
     const processingImport = await this.updateStatus(
@@ -170,8 +166,8 @@ export class StatementImportService {
       this.runImportPipeline(
         userId,
         processingImport.id,
-        rows,
-        parseErrors,
+        data.rows,
+        data.rowErrors,
       ).catch((error) => this.failImport(processingImport.id, userId, error)),
     );
 
@@ -181,10 +177,10 @@ export class StatementImportService {
   private async runImportPipeline(
     userId: string,
     importId: string,
-    rows: IParsedTransactionRow[],
-    parseErrors: string[],
+    rows: IImportTransactionRow[],
+    importErrors: string[],
   ): Promise<void> {
-    const rowErrors = [...parseErrors];
+    const rowErrors = [...importErrors];
 
     // Vendor resolution waits on the AI classifier; loading the dedupe keys does not depend on
     // it, so the two run side by side instead of back to back.
@@ -246,7 +242,7 @@ export class StatementImportService {
 
   private async loadDedupeState(
     userId: string,
-    rows: IParsedTransactionRow[],
+    rows: IImportTransactionRow[],
   ): Promise<IRowDedupeState> {
     const externalIds = rows
       .map((row) => row.externalId)
@@ -321,7 +317,7 @@ export class StatementImportService {
   // already known, then a single classifier batch and a single transaction that bulk-creates
   // the new vendors and their aliases.
   private async resolveVendorsForRows(
-    rows: IParsedTransactionRow[],
+    rows: IImportTransactionRow[],
   ): Promise<Map<string, Vendor>> {
     const descriptionByPattern = new Map(
       rows
@@ -418,7 +414,7 @@ export class StatementImportService {
 
   private formatRow(
     importId: string,
-    row: IParsedTransactionRow,
+    row: IImportTransactionRow,
     dedupeState: IRowDedupeState,
     lookups: IRowLookups,
   ): IPreparedTransactionRow | null {
@@ -472,6 +468,7 @@ export class StatementImportService {
       userId,
       candidates,
     );
+    const confirmedRecurrences: IConfirmedRecurrence[] = [];
 
     for (const candidate of candidates) {
       const recurrence = recurrenceByVendorId.get(candidate.vendor.id) ?? null;
@@ -486,6 +483,7 @@ export class StatementImportService {
           candidate,
           recurrence,
         );
+        confirmedRecurrences.push({ candidate, recurrence });
       } catch (error) {
         this.logger.error({
           message: 'Failed to confirm recurring subscription',
@@ -496,6 +494,45 @@ export class StatementImportService {
           `Recurrence detection failed for ${candidate.vendor.name}: ${normalizeError(error).message}`,
         );
       }
+    }
+
+    await this.promoteMisclassifiedVendors(confirmedRecurrences);
+  }
+
+  // History just proved these vendors recur although the classifier guessed otherwise; left as
+  // they are, their generic NONE service type would keep them out of duplicate detection forever.
+  // The subscriptions already exist, so a failure here is only logged.
+  private async promoteMisclassifiedVendors(
+    confirmedRecurrences: IConfirmedRecurrence[],
+  ): Promise<void> {
+    const misclassified = confirmedRecurrences.filter(
+      ({ candidate }) =>
+        candidate.vendor.chargeKind !== TChargeKind.SUBSCRIPTION,
+    );
+
+    if (misclassified.length === 0) {
+      return;
+    }
+
+    try {
+      const classifications =
+        await this.vendorClassifierService.classifyConfirmedSubscriptions(
+          misclassified.map(({ candidate }) => candidate.description),
+        );
+
+      await Promise.all(
+        misclassified.map(({ candidate, recurrence }, index) =>
+          this.vendorService.promoteToSubscription(candidate.vendor, {
+            billingCycle: recurrence.billingCycle,
+            serviceType: classifications[index]?.serviceType ?? null,
+          }),
+        ),
+      );
+    } catch (error) {
+      this.logger.error({
+        message: 'Failed to promote vendors confirmed as subscriptions',
+        error,
+      });
     }
   }
 
@@ -551,11 +588,13 @@ export class StatementImportService {
       const candidate = candidateByVendorId.get(vendor.id) ?? {
         vendor,
         standingOrderCharge: null,
+        description: data.originalDescription,
       };
       const isStandingOrder = hasStandingOrderMarker(data.originalDescription);
 
       candidateByVendorId.set(vendor.id, {
         vendor,
+        description: candidate.description,
         standingOrderCharge: isStandingOrder
           ? pickLatestCharge(
               candidate.standingOrderCharge,

@@ -1,4 +1,5 @@
 import request from 'supertest';
+import { randomBytes } from 'crypto';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../../app.module';
 import { UserService } from '@Modules/user/user.service';
@@ -36,6 +37,7 @@ describe('Auth flow (e2e)', () => {
 
   beforeAll(async () => {
     process.env.JWT_SECRET = 'e2e-test-secret';
+    process.env.CREDENTIALS_ENCRYPTION_KEY = randomBytes(32).toString('base64');
 
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(ProviderNames.SEQUELIZE)

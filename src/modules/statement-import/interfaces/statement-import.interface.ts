@@ -13,6 +13,7 @@ export interface IStatementImport {
   transactionCount: number;
   completedAt: Date | null;
   errorMessage: string | null;
+  bankConnectionId: string | null;
 }
 
 export type TCreateStatementImport = Optional<
@@ -20,9 +21,25 @@ export type TCreateStatementImport = Optional<
   | 'id'
   | 'source'
   | 'status'
+  | 'filename'
   | 'createdAt'
   | 'updatedAt'
   | 'completedAt'
   | 'errorMessage'
+  | 'bankConnectionId'
   | 'transactionCount'
 >;
+
+export interface IImportTransactionRow {
+  amount: string;
+  currency: string;
+  transactionDate: string;
+  externalId: string | null;
+  originalDescription: string;
+}
+
+export interface IBankImportRequest {
+  rowErrors: string[];
+  bankConnectionId: string;
+  rows: IImportTransactionRow[];
+}
