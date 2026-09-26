@@ -37,6 +37,11 @@ export interface IVendorClassificationDefaults {
   billingCycle: TBillingCycle | null;
 }
 
+export interface ISubscriptionPromotion {
+  billingCycle: TBillingCycle;
+  serviceType: TServiceType | null;
+}
+
 export interface IVendorNameEntry {
   name: string;
   defaults: IVendorClassificationDefaults;

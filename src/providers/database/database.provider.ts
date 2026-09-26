@@ -12,6 +12,7 @@ import { DraftAction } from '@Modules/draft-action/entities/draft-action.entity'
 import { EnvironmentManager } from '../../utilities/environment-manager.utility';
 import { VendorAlias } from '@Modules/vendor-alias/entities/vendor-alias.entity';
 import { Subscription } from '@Modules/subscription/entities/subscription.entity';
+import { BankConnection } from '@Modules/bank-connection/entities/bank-connection.entity';
 import { StatementImport } from '@Modules/statement-import/entities/statement-import.entity';
 
 export const DatabaseProvider: Provider = {
@@ -68,6 +69,7 @@ export const DatabaseProvider: Provider = {
       Transaction,
       DraftAction,
       Subscription,
+      BankConnection,
       StatementImport,
     ]);
 

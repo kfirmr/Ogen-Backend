@@ -6,6 +6,7 @@ import {
 
 import {
   IVendorNameEntry,
+  ISubscriptionPromotion,
   IVendorClassificationDefaults,
 } from './interfaces/vendor.interface';
 
@@ -22,7 +23,9 @@ import { TypedLogger } from '../../logger/logger.service';
 import { CreateVendorDto } from './dto/create-vendor.dto';
 import { UpdateVendorDto } from './dto/update-vendor.dto';
 import { pickMissingFields } from '@Utilities/object.utility';
+import { TChargeKind } from './constants/charge-kind.constant';
 import { toNewVendor } from './utilities/vendor-record.utility';
+import { TServiceType } from './constants/service-type.constant';
 import { ICancellationContact } from './interfaces/cancellation-contact.interface';
 import { VENDOR_NAME_SIMILARITY_THRESHOLD } from './constants/vendor-matching.constant';
 import { CANCELLATION_CONTACT_REFRESH_DAYS } from './constants/cancellation-method.constant';
@@ -245,6 +248,24 @@ export class VendorService {
     );
 
     return refreshedVendor ?? vendor;
+  }
+
+  // A vendor already tagged with a real service type or cadence keeps it; only a generic NONE or
+  // an empty field is replaced, since the promotion comes from one user's charge history.
+  public async promoteToSubscription(
+    vendor: Vendor,
+    promotion: ISubscriptionPromotion,
+  ): Promise<void> {
+    const hasGenericServiceType =
+      vendor.serviceType == null || vendor.serviceType === TServiceType.NONE;
+
+    await this.vendorRepository.update(vendor.id, {
+      chargeKind: TChargeKind.SUBSCRIPTION,
+      billingCycle: vendor.billingCycle ?? promotion.billingCycle,
+      serviceType: hasGenericServiceType
+        ? (promotion.serviceType ?? vendor.serviceType)
+        : vendor.serviceType,
+    });
   }
 
   public async getNeedingCancellationContact(

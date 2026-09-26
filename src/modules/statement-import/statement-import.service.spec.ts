@@ -1,4 +1,3 @@
-import * as XLSX from 'xlsx';
 import { Sequelize } from 'sequelize';
 import { VendorService } from '@Modules/vendor/vendor.service';
 import { StatementImportService } from './statement-import.service';
@@ -6,6 +5,7 @@ import { StatementImportRepository } from './statement-import.repository';
 import { TChargeKind } from '@Modules/vendor/constants/charge-kind.constant';
 import { TransactionService } from '@Modules/transaction/transaction.service';
 import { TServiceType } from '@Modules/vendor/constants/service-type.constant';
+import { IImportTransactionRow } from './interfaces/statement-import.interface';
 import { VendorAliasService } from '@Modules/vendor-alias/vendor-alias.service';
 import { SubscriptionService } from '@Modules/subscription/subscription.service';
 import { LeakResponseService } from '@Modules/leak-response/leak-response.service';
@@ -27,30 +27,26 @@ jest.mock('@vercel/functions', () => ({
   waitUntil: (promise: Promise<void>) => waitUntilMock(promise),
 }));
 
-const HEADERS = [
-  'תאריך רכישה',
-  'שם בית עסק',
-  'סכום עסקה',
-  'מטבע עסקה',
-  'סכום חיוב',
-  'מטבע חיוב',
-  "מס' שובר",
-  'פירוט נוסף',
-];
+// Columns: date, description, transaction amount, transaction currency, charged amount, charged
+// currency, external id, notes — the same shape the scraper rows are reduced to.
+const buildRows = (rawRows: string[][]): IImportTransactionRow[] =>
+  rawRows.map(
+    ([transactionDate, description, , , amount, currency, externalId]) => ({
+      amount,
+      currency,
+      transactionDate,
+      originalDescription: description,
+      externalId: externalId || null,
+    }),
+  );
 
-const buildWorkbookBuffer = (rows: unknown[][]): Buffer => {
-  const sheet = XLSX.utils.aoa_to_sheet([HEADERS, ...rows]);
-  const workbook = XLSX.utils.book_new();
+const buildBankImport = (rows: IImportTransactionRow[]) => ({
+  rows,
+  rowErrors: [],
+  bankConnectionId: 'connection-1',
+});
 
-  XLSX.utils.book_append_sheet(workbook, sheet, 'Sheet1');
-
-  return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
-};
-
-const buildFile = (buffer: Buffer) =>
-  ({ buffer, originalname: 'statement.xlsx' }) as Express.Multer.File;
-
-// startUpload only kicks off the background pipeline via waitUntil; tests await the promise
+// startBankImport only kicks off the background pipeline via waitUntil; tests await the promise
 // captured from the mocked waitUntil to observe the pipeline's side effects.
 const flushDeferredPipeline = async (): Promise<void> => {
   await capturedPipelinePromise.current;
@@ -128,6 +124,7 @@ describe('StatementImportService', () => {
   const buildVendorClassifierService = () =>
     ({
       classify: jest.fn().mockResolvedValue(null),
+      classifyConfirmedSubscriptions: jest.fn().mockResolvedValue([]),
       classifyBatch: jest.fn().mockResolvedValue([
         {
           vendorName: 'Netflix',
@@ -151,7 +148,7 @@ describe('StatementImportService', () => {
     }) as unknown as LeakResponseService;
 
   it('confirms an AI-flagged subscription only once its charges show a cadence, at the lowered two-charge bar', async () => {
-    const buffer = buildWorkbookBuffer([
+    const rows = buildRows([
       ['2026-01-15', 'NETFLIX.COM', '69.00', 'ILS', '69.00', 'ILS', '', ''],
       ['2026-02-15', 'NETFLIX.COM', '69.00', 'ILS', '69.00', 'ILS', '', ''],
     ]);
@@ -189,6 +186,11 @@ describe('StatementImportService', () => {
       ...buildTransactionService(),
       detectRecurrenceForVendors,
     } as unknown as TransactionService;
+    const classifyConfirmedSubscriptions = jest.fn();
+    const classifierService = {
+      ...buildVendorClassifierService(),
+      classifyConfirmedSubscriptions,
+    } as unknown as VendorClassifierService;
 
     const service = new StatementImportService(
       buildSequelize(),
@@ -198,13 +200,14 @@ describe('StatementImportService', () => {
       subscriptionService,
       buildLeakResponseService(),
       buildCancellationContactService(),
-      buildVendorClassifierService(),
+      classifierService,
       buildStatementImportRepository(),
     );
 
-    await service.startUpload('user-1', buildFile(buffer));
+    await service.startBankImport('user-1', buildBankImport(rows));
     await flushDeferredPipeline();
 
+    expect(classifyConfirmedSubscriptions).not.toHaveBeenCalled();
     expect(findOrCreateManyByName).toHaveBeenCalledWith(
       [
         {
@@ -238,7 +241,7 @@ describe('StatementImportService', () => {
   });
 
   it('never turns an essential bill into a subscription, even when the AI flagged it', async () => {
-    const buffer = buildWorkbookBuffer([
+    const rows = buildRows([
       [
         '2026-01-10',
         'חברת החשמל לישראל-הו"ק',
@@ -288,7 +291,7 @@ describe('StatementImportService', () => {
       buildStatementImportRepository(),
     );
 
-    await service.startUpload('user-1', buildFile(buffer));
+    await service.startBankImport('user-1', buildBankImport(rows));
     await flushDeferredPipeline();
 
     expect(detectRecurrenceForVendors).toHaveBeenCalledWith('user-1', []);
@@ -296,7 +299,7 @@ describe('StatementImportService', () => {
   });
 
   it('confirms a standing-order subscription from a single charge without waiting for a cadence', async () => {
-    const buffer = buildWorkbookBuffer([
+    const rows = buildRows([
       [
         '2026-01-15',
         'ספייס גבעתיים-הו"ק',
@@ -348,7 +351,7 @@ describe('StatementImportService', () => {
       buildStatementImportRepository(),
     );
 
-    await service.startUpload('user-1', buildFile(buffer));
+    await service.startBankImport('user-1', buildBankImport(rows));
     await flushDeferredPipeline();
 
     expect(detectRecurrenceForVendors).toHaveBeenCalledWith('user-1', []);
@@ -363,7 +366,7 @@ describe('StatementImportService', () => {
   });
 
   it('never creates a subscription when the vendor was not flagged as subscription-like', async () => {
-    const buffer = buildWorkbookBuffer([
+    const rows = buildRows([
       ['2026-01-15', 'CARREFOUR', '68.11', 'ILS', '68.11', 'ILS', '', ''],
       ['2026-02-15', 'CARREFOUR', '72.34', 'ILS', '72.34', 'ILS', '', ''],
     ]);
@@ -412,14 +415,14 @@ describe('StatementImportService', () => {
       buildStatementImportRepository(),
     );
 
-    await service.startUpload('user-1', buildFile(buffer));
+    await service.startBankImport('user-1', buildBankImport(rows));
     await flushDeferredPipeline();
 
     expect(findOrCreateForImport).not.toHaveBeenCalled();
   });
 
   it('confirms a subscription for this user from recurring charges even when the AI classified the vendor as not subscription-like', async () => {
-    const buffer = buildWorkbookBuffer([
+    const rows = buildRows([
       ['2026-01-15', 'GYM CLUB', '99.00', 'ILS', '99.00', 'ILS', '', ''],
       ['2026-02-15', 'GYM CLUB', '99.00', 'ILS', '99.00', 'ILS', '', ''],
       ['2026-03-15', 'GYM CLUB', '99.00', 'ILS', '99.00', 'ILS', '', ''],
@@ -433,7 +436,9 @@ describe('StatementImportService', () => {
       chargeKind: TChargeKind.ONE_OFF,
     };
 
+    const promoteToSubscription = jest.fn().mockResolvedValue(undefined);
     const vendorService = {
+      promoteToSubscription,
       findOrCreateManyByName: resolveEveryNameTo(vendor),
       getByIds: jest.fn().mockResolvedValue([vendor]),
     } as unknown as VendorService;
@@ -460,7 +465,18 @@ describe('StatementImportService', () => {
       linkUnassignedVendorCharges,
     } as unknown as TransactionService;
 
+    const classifyConfirmedSubscriptions = jest.fn().mockResolvedValue([
+      {
+        vendorName: 'Gym Club',
+        category: TVendorCategory.LEISURE_SPORTS,
+        serviceType: TServiceType.GYM_MEMBERSHIP,
+        billingCycle: TBillingCycle.MONTHLY,
+        estimatedAveragePrice: null,
+        chargeKind: TChargeKind.SUBSCRIPTION,
+      },
+    ]);
     const classifierService = {
+      classifyConfirmedSubscriptions,
       classify: jest.fn().mockResolvedValue(null),
       classifyBatch: jest.fn().mockResolvedValue([
         {
@@ -486,7 +502,7 @@ describe('StatementImportService', () => {
       buildStatementImportRepository(),
     );
 
-    await service.startUpload('user-1', buildFile(buffer));
+    await service.startBankImport('user-1', buildBankImport(rows));
     await flushDeferredPipeline();
 
     expect(detectRecurrenceForVendors).toHaveBeenCalledTimes(1);
@@ -510,10 +526,93 @@ describe('StatementImportService', () => {
       'subscription-2',
       expect.anything(),
     );
+    expect(classifyConfirmedSubscriptions).toHaveBeenCalledWith(['GYM CLUB']);
+    expect(promoteToSubscription).toHaveBeenCalledWith(vendor, {
+      billingCycle: TBillingCycle.MONTHLY,
+      serviceType: TServiceType.GYM_MEMBERSHIP,
+    });
+  });
+
+  it('still completes the import when promoting a confirmed vendor fails', async () => {
+    const rows = buildRows([
+      ['2026-01-15', 'GYM CLUB', '99.00', 'ILS', '99.00', 'ILS', '', ''],
+      ['2026-02-15', 'GYM CLUB', '99.00', 'ILS', '99.00', 'ILS', '', ''],
+    ]);
+
+    const vendor = {
+      id: 'vendor-3',
+      name: 'Gym Club',
+      billingCycle: null,
+      category: TVendorCategory.OTHER,
+      chargeKind: TChargeKind.ONE_OFF,
+    };
+
+    const promoteToSubscription = jest.fn();
+    const vendorService = {
+      promoteToSubscription,
+      findOrCreateManyByName: resolveEveryNameTo(vendor),
+      getByIds: jest.fn().mockResolvedValue([vendor]),
+    } as unknown as VendorService;
+
+    const subscriptionService = {
+      getActiveIdsByVendor: jest.fn().mockResolvedValue(new Map()),
+      findOrCreateForImport: jest
+        .fn()
+        .mockResolvedValue({ id: 'subscription-2' }),
+    } as unknown as SubscriptionService;
+
+    const transactionService = {
+      ...buildTransactionService(),
+      detectRecurrenceForVendors: jest.fn().mockImplementation(
+        resolveRecurrenceForEveryVendor({
+          amount: '99.00',
+          currency: 'ILS',
+          billingCycle: TBillingCycle.MONTHLY,
+        }),
+      ),
+    } as unknown as TransactionService;
+
+    const classifierService = {
+      ...buildVendorClassifierService(),
+      classifyConfirmedSubscriptions: jest
+        .fn()
+        .mockRejectedValue(new Error('AI unavailable')),
+    } as unknown as VendorClassifierService;
+
+    const updateImport = jest.fn().mockResolvedValue([1]);
+    const statementImportRepository = {
+      ...buildStatementImportRepository(),
+      update: updateImport,
+    } as unknown as StatementImportRepository;
+    const scanAndRespond = jest.fn().mockResolvedValue(undefined);
+    const leakResponseService = {
+      scanAndRespond,
+    } as unknown as LeakResponseService;
+    const service = new StatementImportService(
+      buildSequelize(),
+      vendorService,
+      transactionService,
+      buildVendorAliasService(),
+      subscriptionService,
+      leakResponseService,
+      buildCancellationContactService(),
+      classifierService,
+      statementImportRepository,
+    );
+
+    await service.startBankImport('user-1', buildBankImport(rows));
+    await flushDeferredPipeline();
+
+    expect(promoteToSubscription).not.toHaveBeenCalled();
+    expect(updateImport).toHaveBeenLastCalledWith(
+      'import-1',
+      expect.objectContaining({ status: 'COMPLETED' }),
+    );
+    expect(scanAndRespond).toHaveBeenCalledTimes(1);
   });
 
   it('never checks habitual-spending categories like groceries for recurrence', async () => {
-    const buffer = buildWorkbookBuffer([
+    const rows = buildRows([
       ['2026-01-15', 'CARREFOUR', '70.00', 'ILS', '70.00', 'ILS', '', ''],
       ['2026-02-15', 'CARREFOUR', '70.00', 'ILS', '70.00', 'ILS', '', ''],
       ['2026-03-15', 'CARREFOUR', '70.00', 'ILS', '70.00', 'ILS', '', ''],
@@ -556,7 +655,7 @@ describe('StatementImportService', () => {
       buildStatementImportRepository(),
     );
 
-    await service.startUpload('user-1', buildFile(buffer));
+    await service.startBankImport('user-1', buildBankImport(rows));
     await flushDeferredPipeline();
 
     expect(detectRecurrenceForVendors).toHaveBeenCalledWith('user-1', []);
@@ -564,7 +663,7 @@ describe('StatementImportService', () => {
   });
 
   it('bulk-creates every formatted row in a single call and scans for leaks once', async () => {
-    const buffer = buildWorkbookBuffer([
+    const rows = buildRows([
       ['2026-01-10', 'CARREFOUR', '68.11', 'ILS', '68.11', 'ILS', '', ''],
       ['2026-01-11', 'RAMI LEVY', '42.00', 'ILS', '42.00', 'ILS', '', ''],
     ]);
@@ -619,7 +718,7 @@ describe('StatementImportService', () => {
       buildStatementImportRepository(),
     );
 
-    await service.startUpload('user-1', buildFile(buffer));
+    await service.startBankImport('user-1', buildBankImport(rows));
     await flushDeferredPipeline();
 
     expect(bulkCreateForImport).toHaveBeenCalledTimes(1);
@@ -632,7 +731,7 @@ describe('StatementImportService', () => {
   });
 
   it('skips a row whose external id already exists for the user, without bulk-inserting it', async () => {
-    const buffer = buildWorkbookBuffer([
+    const rows = buildRows([
       [
         '2026-01-10',
         'CARREFOUR',
@@ -703,7 +802,7 @@ describe('StatementImportService', () => {
       buildStatementImportRepository(),
     );
 
-    await service.startUpload('user-1', buildFile(buffer));
+    await service.startBankImport('user-1', buildBankImport(rows));
     await flushDeferredPipeline();
 
     expect(bulkCreateForImport).toHaveBeenCalledWith('user-1', [
@@ -712,7 +811,7 @@ describe('StatementImportService', () => {
   });
 
   it('skips a row that duplicates another row in the same file by date and amount', async () => {
-    const buffer = buildWorkbookBuffer([
+    const rows = buildRows([
       ['2026-01-10', 'CARREFOUR', '68.11', 'ILS', '68.11', 'ILS', '', ''],
       ['2026-01-10', 'CARREFOUR', '68.11', 'ILS', '68.11', 'ILS', '', ''],
     ]);
@@ -761,7 +860,7 @@ describe('StatementImportService', () => {
       buildStatementImportRepository(),
     );
 
-    await service.startUpload('user-1', buildFile(buffer));
+    await service.startBankImport('user-1', buildBankImport(rows));
     await flushDeferredPipeline();
 
     expect(bulkCreateForImport).toHaveBeenCalledWith('user-1', [
@@ -770,7 +869,7 @@ describe('StatementImportService', () => {
   });
 
   it('skips a row that matches a transaction already stored by date and amount', async () => {
-    const buffer = buildWorkbookBuffer([
+    const rows = buildRows([
       ['2026-01-10', 'CARREFOUR', '68.11', 'ILS', '68.11', 'ILS', '', ''],
       ['2026-01-11', 'RAMI LEVY', '42', 'ILS', '42', 'ILS', '', ''],
     ]);
@@ -813,7 +912,7 @@ describe('StatementImportService', () => {
       buildStatementImportRepository(),
     );
 
-    await service.startUpload('user-1', buildFile(buffer));
+    await service.startBankImport('user-1', buildBankImport(rows));
     await flushDeferredPipeline();
 
     expect(bulkCreateForImport).toHaveBeenCalledWith('user-1', [
@@ -822,7 +921,7 @@ describe('StatementImportService', () => {
   });
 
   it('completes the import before enrichment, so a failing leak scan cannot fail or taint it', async () => {
-    const buffer = buildWorkbookBuffer([
+    const rows = buildRows([
       ['2026-01-10', 'CARREFOUR', '68.11', 'ILS', '68.11', 'ILS', '', ''],
       ['2026-01-11', 'RAMI LEVY', '42.00', 'ILS', '42.00', 'ILS', '', ''],
     ]);
@@ -872,7 +971,7 @@ describe('StatementImportService', () => {
       statementImportRepository,
     );
 
-    await service.startUpload('user-1', buildFile(buffer));
+    await service.startBankImport('user-1', buildBankImport(rows));
     await flushDeferredPipeline();
 
     expect(update).toHaveBeenLastCalledWith(
@@ -892,7 +991,7 @@ describe('StatementImportService', () => {
   });
 
   it('marks the import as failed when the vendor lookup fails', async () => {
-    const buffer = buildWorkbookBuffer([
+    const rows = buildRows([
       ['2026-01-10', 'CARREFOUR', '68.11', 'ILS', '68.11', 'ILS', '', ''],
     ]);
 
@@ -938,7 +1037,7 @@ describe('StatementImportService', () => {
       statementImportRepository,
     );
 
-    await service.startUpload('user-1', buildFile(buffer));
+    await service.startBankImport('user-1', buildBankImport(rows));
     await flushDeferredPipeline();
 
     expect(bulkCreateForImport).not.toHaveBeenCalled();
@@ -949,7 +1048,7 @@ describe('StatementImportService', () => {
   });
 
   it('returns the import immediately in PROCESSING status and defers the pipeline via waitUntil', async () => {
-    const buffer = buildWorkbookBuffer([
+    const rows = buildRows([
       ['2026-01-10', 'CARREFOUR', '68.11', 'ILS', '68.11', 'ILS', '', ''],
     ]);
 
@@ -975,7 +1074,10 @@ describe('StatementImportService', () => {
       buildStatementImportRepository(),
     );
 
-    const result = await service.startUpload('user-1', buildFile(buffer));
+    const result = await service.startBankImport(
+      'user-1',
+      buildBankImport(rows),
+    );
 
     expect(result).toEqual(
       expect.objectContaining({ id: 'import-1', status: 'PROCESSING' }),
@@ -985,8 +1087,66 @@ describe('StatementImportService', () => {
     await flushDeferredPipeline();
   });
 
+  it('records the import as a bank sync and reports the rows the scraper could not map', async () => {
+    const rows = buildRows([
+      ['2026-01-10', 'CARREFOUR', '68.11', 'ILS', '68.11', 'ILS', '', ''],
+    ]);
+
+    const vendorService = {
+      getByIds: jest.fn().mockResolvedValue([]),
+      findOrCreateManyByName: jest.fn().mockResolvedValue(new Map()),
+    } as unknown as VendorService;
+
+    const subscriptionService = {
+      getActiveIdsByVendor: jest.fn().mockResolvedValue(new Map()),
+      findOrCreateForImport: jest.fn(),
+    } as unknown as SubscriptionService;
+
+    const create = jest
+      .fn()
+      .mockResolvedValue({ id: 'import-1', status: 'PENDING' });
+    const update = jest.fn().mockResolvedValue([1]);
+    const statementImportRepository = {
+      ...buildStatementImportRepository(),
+      create,
+      update,
+    } as unknown as StatementImportRepository;
+
+    const service = new StatementImportService(
+      buildSequelize(),
+      vendorService,
+      buildTransactionService(),
+      buildVendorAliasService(),
+      subscriptionService,
+      buildLeakResponseService(),
+      buildCancellationContactService(),
+      buildVendorClassifierService(),
+      statementImportRepository,
+    );
+
+    await service.startBankImport('user-1', {
+      rows,
+      bankConnectionId: 'connection-1',
+      rowErrors: ['2026-01-11: missing description'],
+    });
+    await flushDeferredPipeline();
+
+    expect(create).toHaveBeenCalledWith({
+      userId: 'user-1',
+      source: 'BANK_API',
+      bankConnectionId: 'connection-1',
+    });
+    expect(update).toHaveBeenLastCalledWith(
+      'import-1',
+      expect.objectContaining({
+        status: 'COMPLETED',
+        errorMessage: '2026-01-11: missing description',
+      }),
+    );
+  });
+
   it('marks the import as failed when the deferred pipeline throws outside the row loop', async () => {
-    const buffer = buildWorkbookBuffer([
+    const rows = buildRows([
       ['2026-01-10', 'CARREFOUR', '68.11', 'ILS', '68.11', 'ILS', '', ''],
     ]);
 
@@ -1025,7 +1185,7 @@ describe('StatementImportService', () => {
       statementImportRepository,
     );
 
-    await service.startUpload('user-1', buildFile(buffer));
+    await service.startBankImport('user-1', buildBankImport(rows));
     await flushDeferredPipeline();
 
     expect(update).toHaveBeenLastCalledWith(

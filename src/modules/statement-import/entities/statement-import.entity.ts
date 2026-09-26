@@ -28,6 +28,7 @@ import {
 
 import { DATA_LENGTHS } from '@Constants/data-length';
 import { User } from '@Modules/user/entities/user.entity';
+import { BankConnection } from '@Modules/bank-connection/entities/bank-connection.entity';
 
 @Table({
   tableName: 'statement_imports',
@@ -78,6 +79,11 @@ export class StatementImport
   @AllowNull(true)
   @Column({ type: DataType.DATE })
   declare completedAt: Date | null;
+
+  @AllowNull(true)
+  @ForeignKey(() => BankConnection)
+  @Column({ type: DataType.UUID })
+  declare bankConnectionId: string | null;
 
   @CreatedAt
   declare createdAt: Date;
