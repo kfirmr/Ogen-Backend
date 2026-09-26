@@ -7,6 +7,7 @@ import {
   VendorClassificationBatchSchema,
   CLASSIFICATION_BATCH_MAX_TOKENS,
   CLASSIFICATION_BATCH_SYSTEM_PROMPT,
+  CONFIRMED_SUBSCRIPTION_BATCH_SYSTEM_PROMPT,
 } from './constants/vendor-classification.constant';
 
 import Anthropic from '@anthropic-ai/sdk';
@@ -60,8 +61,27 @@ export class VendorClassifierService {
     );
   }
 
-  public async classifyBatch(
+  public classifyBatch(
     descriptions: string[],
+  ): Promise<(IVendorClassification | null)[]> {
+    return this.classifyInChunks(
+      descriptions,
+      CLASSIFICATION_BATCH_SYSTEM_PROMPT,
+    );
+  }
+
+  public classifyConfirmedSubscriptions(
+    descriptions: string[],
+  ): Promise<(IVendorClassification | null)[]> {
+    return this.classifyInChunks(
+      descriptions,
+      CONFIRMED_SUBSCRIPTION_BATCH_SYSTEM_PROMPT,
+    );
+  }
+
+  private async classifyInChunks(
+    descriptions: string[],
+    systemPrompt: string,
   ): Promise<(IVendorClassification | null)[]> {
     const indexedDescriptions = descriptions.map((description, index) => ({
       index,
@@ -69,7 +89,7 @@ export class VendorClassifierService {
     }));
     const chunks = chunkArray(indexedDescriptions, CLASSIFICATION_BATCH_SIZE);
     const chunkResults = await Promise.all(
-      chunks.map((chunk) => this.classifyChunk(chunk)),
+      chunks.map((chunk) => this.classifyChunk(chunk, systemPrompt)),
     );
 
     return chunkResults.flat();
@@ -77,11 +97,12 @@ export class VendorClassifierService {
 
   private async classifyChunk(
     chunk: IIndexedDescription[],
+    systemPrompt: string,
   ): Promise<(IVendorClassification | null)[]> {
     const response = await this.client.messages.parse({
       model: CLASSIFICATION_MODEL,
+      system: systemPrompt,
       max_tokens: CLASSIFICATION_BATCH_MAX_TOKENS,
-      system: CLASSIFICATION_BATCH_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: JSON.stringify(chunk) }],
       output_config: {
         format: zodOutputFormat(VendorClassificationBatchSchema),

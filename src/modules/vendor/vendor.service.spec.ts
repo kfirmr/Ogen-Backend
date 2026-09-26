@@ -1,4 +1,5 @@
 import { VendorService } from './vendor.service';
+import { Vendor } from './entities/vendor.entity';
 import { VendorRepository } from './vendor.repository';
 import { TChargeKind } from './constants/charge-kind.constant';
 import { TServiceType } from './constants/service-type.constant';
@@ -17,6 +18,9 @@ const buildVendor = (overrides: Partial<Record<string, unknown>> = {}) => ({
   chargeKind: null,
   ...overrides,
 });
+
+const buildVendorEntity = (overrides: Partial<Record<string, unknown>> = {}) =>
+  buildVendor(overrides) as unknown as Vendor;
 
 const buildDefaults = (overrides: Partial<Record<string, unknown>> = {}) => ({
   category: TVendorCategory.FITNESS,
@@ -172,6 +176,64 @@ describe('VendorService', () => {
       );
       expect(result.get('Gym City')).toBe(createdVendor);
       expect(result.get('GymCity Ltd')).toBe(createdVendor);
+    });
+  });
+
+  describe('promoteToSubscription', () => {
+    it('replaces a generic NONE service type and fills an empty cadence', async () => {
+      const { service, repository } = buildRepository();
+
+      await service.promoteToSubscription(
+        buildVendorEntity({
+          chargeKind: TChargeKind.ONE_OFF,
+          serviceType: TServiceType.NONE,
+        }),
+        {
+          billingCycle: TBillingCycle.MONTHLY,
+          serviceType: TServiceType.GYM_MEMBERSHIP,
+        },
+      );
+
+      expect(repository.update).toHaveBeenCalledWith('vendor-1', {
+        chargeKind: TChargeKind.SUBSCRIPTION,
+        billingCycle: TBillingCycle.MONTHLY,
+        serviceType: TServiceType.GYM_MEMBERSHIP,
+      });
+    });
+
+    it('keeps a service type and cadence the vendor already resolved', async () => {
+      const { service, repository } = buildRepository();
+
+      await service.promoteToSubscription(
+        buildVendorEntity({
+          chargeKind: TChargeKind.ONE_OFF,
+          billingCycle: TBillingCycle.YEARLY,
+        }),
+        {
+          billingCycle: TBillingCycle.MONTHLY,
+          serviceType: TServiceType.FITNESS_APP,
+        },
+      );
+
+      expect(repository.update).toHaveBeenCalledWith('vendor-1', {
+        chargeKind: TChargeKind.SUBSCRIPTION,
+        billingCycle: TBillingCycle.YEARLY,
+        serviceType: TServiceType.GYM_MEMBERSHIP,
+      });
+    });
+
+    it('keeps NONE when the classifier returned no service type', async () => {
+      const { service, repository } = buildRepository();
+
+      await service.promoteToSubscription(
+        buildVendorEntity({ serviceType: TServiceType.NONE }),
+        { billingCycle: TBillingCycle.MONTHLY, serviceType: null },
+      );
+
+      expect(repository.update).toHaveBeenCalledWith(
+        'vendor-1',
+        expect.objectContaining({ serviceType: TServiceType.NONE }),
+      );
     });
   });
 });

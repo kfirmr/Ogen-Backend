@@ -1,9 +1,15 @@
+import {
+  CLASSIFICATION_BATCH_SIZE,
+  CLASSIFICATION_BATCH_SYSTEM_PROMPT,
+  CONFIRMED_SUBSCRIPTION_BATCH_SYSTEM_PROMPT,
+} from './constants/vendor-classification.constant';
+
 import Anthropic from '@anthropic-ai/sdk';
 import { VendorClassifierService } from './vendor-classifier.service';
 import { TChargeKind } from '@Modules/vendor/constants/charge-kind.constant';
+import { TServiceType } from '@Modules/vendor/constants/service-type.constant';
 import { TVendorCategory } from '@Modules/vendor/constants/vendor-category.constant';
 import { TBillingCycle } from '@Modules/subscription/constants/billing-cycle.constant';
-import { CLASSIFICATION_BATCH_SIZE } from './constants/vendor-classification.constant';
 
 const buildClient = (parsedOutput: unknown) => {
   const parse = jest.fn().mockResolvedValue({ parsed_output: parsedOutput });
@@ -198,6 +204,42 @@ describe('VendorClassifierService', () => {
       expect(result).toHaveLength(CLASSIFICATION_BATCH_SIZE + 1);
       expect(result.every((classification) => classification != null)).toBe(
         true,
+      );
+    });
+  });
+
+  describe('classifyConfirmedSubscriptions', () => {
+    it('classifies with the confirmed-subscription prompt, while classifyBatch keeps the plain one', async () => {
+      const { client, parse } = buildClient({
+        classifications: [
+          {
+            ...buildRawClassification({
+              vendorName: 'CrossFit Impulso',
+              serviceType: TServiceType.GYM_MEMBERSHIP,
+            }),
+            index: 0,
+          },
+        ],
+      });
+      const service = new VendorClassifierService(client);
+
+      const confirmed = await service.classifyConfirmedSubscriptions([
+        'קרוספיט אימפולסו',
+      ]);
+      await service.classifyBatch(['קרוספיט אימפולסו']);
+
+      expect(confirmed[0]).toEqual(
+        expect.objectContaining({ serviceType: TServiceType.GYM_MEMBERSHIP }),
+      );
+      expect(parse).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          system: CONFIRMED_SUBSCRIPTION_BATCH_SYSTEM_PROMPT,
+        }),
+      );
+      expect(parse).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ system: CLASSIFICATION_BATCH_SYSTEM_PROMPT }),
       );
     });
   });
