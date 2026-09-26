@@ -9,7 +9,6 @@ export interface IStatementImport {
   updatedAt: Date;
   status: TImportStatus;
   source: TImportSource;
-  filename: string | null;
   transactionCount: number;
   completedAt: Date | null;
   errorMessage: string | null;
@@ -21,7 +20,6 @@ export type TCreateStatementImport = Optional<
   | 'id'
   | 'source'
   | 'status'
-  | 'filename'
   | 'createdAt'
   | 'updatedAt'
   | 'completedAt'
@@ -42,4 +40,10 @@ export interface IBankImportRequest {
   rowErrors: string[];
   bankConnectionId: string;
   rows: IImportTransactionRow[];
+}
+
+export interface IImportStatusUpdate {
+  status: TImportStatus;
+  transactionCount?: number;
+  errorMessage?: string | null;
 }

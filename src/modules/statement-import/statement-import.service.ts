@@ -12,6 +12,7 @@ import {
 
 import {
   IBankImportRequest,
+  IImportStatusUpdate,
   IImportTransactionRow,
 } from './interfaces/statement-import.interface';
 
@@ -36,13 +37,11 @@ import { Vendor } from '@Modules/vendor/entities/vendor.entity';
 import { TImportSource } from './constants/import-source.constant';
 import { ProviderNames } from '@Providers/database/provider-names';
 import { StatementImport } from './entities/statement-import.entity';
-import { UpdateImportStatusDto } from './dto/update-import-status.dto';
 import { normalizeError } from '../../utilities/normalize-error.utility';
 import { GetStatementImportsDto } from './dto/get-statement-imports.dto';
 import { toVendorNameEntry } from './utilities/vendor-name-entry.utility';
 import { StatementImportRepository } from './statement-import.repository';
 import { TChargeKind } from '@Modules/vendor/constants/charge-kind.constant';
-import { CreateStatementImportDto } from './dto/create-statement-import.dto';
 import { TransactionService } from '@Modules/transaction/transaction.service';
 import { VendorAliasService } from '@Modules/vendor-alias/vendor-alias.service';
 import { SubscriptionService } from '@Modules/subscription/subscription.service';
@@ -132,18 +131,7 @@ export class StatementImportService {
     return statementImport;
   }
 
-  public create(
-    userId: string,
-    data: CreateStatementImportDto,
-  ): Promise<StatementImport> {
-    return this.statementImportRepository.create({
-      userId,
-      source: data.source,
-      filename: data.filename ?? null,
-    });
-  }
-
-  // Returns as soon as the import is recorded and marked PROCESSING; classification, insertion,
+  // Returns as soon as the import is recorded, already PROCESSING; classification, insertion,
   // and leak detection continue in the background via waitUntil (see failImport for why a crash
   // there still has to reach the row instead of vanishing).
   public async startBankImport(
@@ -153,25 +141,20 @@ export class StatementImportService {
     const statementImport = await this.statementImportRepository.create({
       userId,
       source: TImportSource.BANK_API,
+      status: TImportStatus.PROCESSING,
       bankConnectionId: data.bankConnectionId,
     });
-
-    const processingImport = await this.updateStatus(
-      statementImport.id,
-      userId,
-      { status: TImportStatus.PROCESSING },
-    );
 
     waitUntil(
       this.runImportPipeline(
         userId,
-        processingImport.id,
+        statementImport.id,
         data.rows,
         data.rowErrors,
-      ).catch((error) => this.failImport(processingImport.id, userId, error)),
+      ).catch((error) => this.failImport(statementImport.id, userId, error)),
     );
 
-    return processingImport;
+    return statementImport;
   }
 
   private async runImportPipeline(
@@ -216,7 +199,7 @@ export class StatementImportService {
     const hasOnlyFailedRows = rows.length > 0 && successCount === 0;
     const errorMessage = rowErrors.length
       ? rowErrors.slice(0, 50).join('\n').slice(0, DATA_LENGTHS.DESCRIPTION)
-      : undefined;
+      : null;
 
     await this.updateStatus(importId, userId, {
       status: hasOnlyFailedRows
@@ -639,10 +622,10 @@ export class StatementImportService {
     }
   }
 
-  public async updateStatus(
+  private async updateStatus(
     id: string,
     userId: string,
-    data: UpdateImportStatusDto,
+    data: IImportStatusUpdate,
   ): Promise<StatementImport> {
     const statementImport = await this.getById(id, userId);
 

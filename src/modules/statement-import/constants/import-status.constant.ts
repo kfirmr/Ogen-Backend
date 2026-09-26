@@ -1,6 +1,5 @@
 export enum TImportStatus {
   FAILED = 'FAILED',
-  PENDING = 'PENDING',
   COMPLETED = 'COMPLETED',
   PROCESSING = 'PROCESSING',
 }

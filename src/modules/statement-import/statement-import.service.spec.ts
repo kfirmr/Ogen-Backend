@@ -86,7 +86,7 @@ describe('StatementImportService', () => {
     ({
       create: jest
         .fn()
-        .mockResolvedValue({ id: 'import-1', status: 'PENDING' }),
+        .mockResolvedValue({ id: 'import-1', status: 'PROCESSING' }),
       update: jest.fn().mockResolvedValue([1]),
       findById: jest
         .fn()
@@ -1104,7 +1104,7 @@ describe('StatementImportService', () => {
 
     const create = jest
       .fn()
-      .mockResolvedValue({ id: 'import-1', status: 'PENDING' });
+      .mockResolvedValue({ id: 'import-1', status: 'PROCESSING' });
     const update = jest.fn().mockResolvedValue([1]);
     const statementImportRepository = {
       ...buildStatementImportRepository(),
@@ -1134,6 +1134,7 @@ describe('StatementImportService', () => {
     expect(create).toHaveBeenCalledWith({
       userId: 'user-1',
       source: 'BANK_API',
+      status: 'PROCESSING',
       bankConnectionId: 'connection-1',
     });
     expect(update).toHaveBeenLastCalledWith(
