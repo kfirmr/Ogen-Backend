@@ -1,7 +1,4 @@
 export enum TImportSource {
-  CSV = 'CSV',
-  XLSX = 'XLSX',
-  MANUAL = 'MANUAL',
   BANK_API = 'BANK_API',
 }
 

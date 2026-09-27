@@ -26,7 +26,6 @@ import {
   TCreateStatementImport,
 } from '../interfaces/statement-import.interface';
 
-import { DATA_LENGTHS } from '@Constants/data-length';
 import { User } from '@Modules/user/entities/user.entity';
 import { BankConnection } from '@Modules/bank-connection/entities/bank-connection.entity';
 
@@ -54,18 +53,14 @@ export class StatementImport
   declare userId: string;
 
   @AllowNull(false)
-  @Default(TImportSource.CSV)
+  @Default(TImportSource.BANK_API)
   @Column({ type: DataType.ENUM, values: IMPORT_SOURCE_VALUES })
   declare source: TImportSource;
 
   @AllowNull(false)
-  @Default(TImportStatus.PENDING)
+  @Default(TImportStatus.PROCESSING)
   @Column({ type: DataType.ENUM, values: IMPORT_STATUS_VALUES })
   declare status: TImportStatus;
-
-  @AllowNull(true)
-  @Column({ type: DataType.STRING(DATA_LENGTHS.FILENAME) })
-  declare filename: string | null;
 
   @AllowNull(false)
   @Default(0)

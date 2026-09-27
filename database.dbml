@@ -84,10 +84,7 @@ Enum insight_status {
 }
 
 Enum import_source {
-  CSV
   BANK_API
-  MANUAL
-  XLSX
 }
 
 Enum bank_company {
@@ -121,7 +118,6 @@ Enum bank_connection_status {
 }
 
 Enum import_status {
-  PENDING
   PROCESSING
   COMPLETED
   FAILED
@@ -216,9 +212,8 @@ Table bank_connections {
 Table statement_imports {
   id uuid [pk, default: `gen_random_uuid()`]
   user_id uuid [not null, ref: > users.id]
-  source import_source [not null, default: 'CSV']
-  status import_status [not null, default: 'PENDING']
-  filename varchar(255) [null, note: 'Original upload name; null for API-sourced imports']
+  source import_source [not null, default: 'BANK_API']
+  status import_status [not null, default: 'PROCESSING']
   transaction_count integer [not null, default: 0, note: 'Rows successfully ingested']
   error_message text [null, note: 'Populated when status is FAILED']
   completed_at timestamptz [null]
@@ -230,7 +225,7 @@ Table statement_imports {
     (user_id, created_at) [name: 'idx_statement_imports_user_created']
   }
 
-  Note: 'One row per upload or sync. Undo is a soft delete of every transaction carrying this import_id.'
+  Note: 'One row per bank sync. Undo is a soft delete of every transaction carrying this import_id.'
 }
 
 Table subscriptions {
