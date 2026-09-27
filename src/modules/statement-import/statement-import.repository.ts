@@ -40,6 +40,20 @@ export class StatementImportRepository {
     return { items, nextCursor: buildNextCursor(items, batchSize) };
   }
 
+  public async findIdsByBankConnection(
+    userId: string,
+    bankConnectionId: string,
+    transaction?: Transaction,
+  ): Promise<string[]> {
+    const statementImports = await StatementImport.findAll({
+      attributes: ['id'],
+      where: { userId, bankConnectionId },
+      transaction,
+    });
+
+    return statementImports.map((statementImport) => statementImport.id);
+  }
+
   public create(
     data: TCreateStatementImport,
     transaction?: Transaction,

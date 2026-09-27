@@ -27,8 +27,8 @@ import {
   IRecurringCharge,
 } from '@Modules/transaction/interfaces/recurrence.interface';
 
-import { Sequelize } from 'sequelize';
 import { waitUntil } from '@vercel/functions';
+import { Sequelize, Transaction } from 'sequelize';
 import { DATA_LENGTHS } from '@Constants/data-length';
 import { TypedLogger } from '../../logger/logger.service';
 import { IBatchResult } from '@Interfaces/batch.interface';
@@ -687,5 +687,17 @@ export class StatementImportService {
     }
 
     return this.getById(id, userId);
+  }
+
+  public findIdsByBankConnection(
+    userId: string,
+    bankConnectionId: string,
+    transaction?: Transaction,
+  ): Promise<string[]> {
+    return this.statementImportRepository.findIdsByBankConnection(
+      userId,
+      bankConnectionId,
+      transaction,
+    );
   }
 }

@@ -10,12 +10,17 @@ import {
   buildCursorCondition,
 } from '@Utilities/pagination.utility';
 
+import {
+  IInsight,
+  IInsightLinks,
+  TCreateInsight,
+} from './interfaces/insight.interface';
+
 import { Injectable } from '@nestjs/common';
 import { Insight } from './entities/insight.entity';
 import { GetInsightsDto } from './dto/get-insights.dto';
 import { IBatchResult } from '@Interfaces/batch.interface';
 import { Vendor } from '@Modules/vendor/entities/vendor.entity';
-import { IInsight, TCreateInsight } from './interfaces/insight.interface';
 import { Transaction } from '@Modules/transaction/entities/transaction.entity';
 import { Subscription } from '@Modules/subscription/entities/subscription.entity';
 
@@ -51,6 +56,44 @@ export class InsightRepository {
     });
 
     return { items, nextCursor: buildNextCursor(items, batchSize) };
+  }
+
+  public async findIdsLinkedTo(
+    userId: string,
+    linked: IInsightLinks,
+    transaction?: SequelizeTransaction,
+  ): Promise<string[]> {
+    const hasLinks =
+      linked.subscriptionIds.length > 0 || linked.transactionIds.length > 0;
+
+    if (!hasLinks) {
+      return [];
+    }
+
+    const insights = await Insight.findAll({
+      attributes: ['id'],
+      where: {
+        userId,
+        [Op.or]: [
+          { subscriptionId: { [Op.in]: linked.subscriptionIds } },
+          { transactionId: { [Op.in]: linked.transactionIds } },
+        ],
+      },
+      transaction,
+    });
+
+    return insights.map((insight) => insight.id);
+  }
+
+  public deleteByIds(
+    ids: string[],
+    transaction?: SequelizeTransaction,
+  ): Promise<number> {
+    if (ids.length === 0) {
+      return Promise.resolve(0);
+    }
+
+    return Insight.destroy({ where: { id: { [Op.in]: ids } }, transaction });
   }
 
   public create(

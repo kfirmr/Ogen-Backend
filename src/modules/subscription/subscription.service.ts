@@ -245,4 +245,16 @@ export class SubscriptionService {
     await this.getById(id, userId);
     await this.subscriptionRepository.softDelete(id);
   }
+
+  public softDeleteByIds(
+    userId: string,
+    ids: string[],
+    transaction?: Transaction,
+  ): Promise<number> {
+    return this.subscriptionRepository.softDeleteByIds(
+      userId,
+      ids,
+      transaction,
+    );
+  }
 }
