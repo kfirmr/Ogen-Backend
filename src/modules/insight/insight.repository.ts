@@ -1,5 +1,6 @@
 import {
   Op,
+  Sequelize,
   WhereOptions,
   Transaction as SequelizeTransaction,
 } from 'sequelize';
@@ -21,6 +22,7 @@ import { Insight } from './entities/insight.entity';
 import { GetInsightsDto } from './dto/get-insights.dto';
 import { IBatchResult } from '@Interfaces/batch.interface';
 import { Vendor } from '@Modules/vendor/entities/vendor.entity';
+import { INSIGHT_METADATA_KEYS } from './constants/insight-metadata.constant';
 import { Transaction } from '@Modules/transaction/entities/transaction.entity';
 import { Subscription } from '@Modules/subscription/entities/subscription.entity';
 
@@ -72,13 +74,8 @@ export class InsightRepository {
 
     const insights = await Insight.findAll({
       attributes: ['id'],
-      where: {
-        userId,
-        [Op.or]: [
-          { subscriptionId: { [Op.in]: linked.subscriptionIds } },
-          { transactionId: { [Op.in]: linked.transactionIds } },
-        ],
-      },
+      where: { userId, [Op.or]: this.buildLinkConditions(linked) },
+      replacements: { subscriptionIds: linked.subscriptionIds },
       transaction,
     });
 
@@ -132,5 +129,25 @@ export class InsightRepository {
         ...filterConditions,
       ],
     };
+  }
+
+  // A duplicate-service insight is anchored on one subscription and lists the others only in its
+  // metadata, so removing any listed subscription must also remove the insight.
+  private buildLinkConditions(linked: IInsightLinks): WhereOptions<Insight>[] {
+    const directLinks: WhereOptions<Insight>[] = [
+      { subscriptionId: { [Op.in]: linked.subscriptionIds } },
+      { transactionId: { [Op.in]: linked.transactionIds } },
+    ];
+
+    if (linked.subscriptionIds.length === 0) {
+      return directLinks;
+    }
+
+    return [
+      ...directLinks,
+      Sequelize.literal(
+        `"Insight"."metadata"->'${INSIGHT_METADATA_KEYS.SUBSCRIPTION_IDS}' ?| ARRAY[:subscriptionIds]::text[]`,
+      ),
+    ];
   }
 }
