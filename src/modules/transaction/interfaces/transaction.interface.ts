@@ -1,5 +1,6 @@
 import { Optional } from 'sequelize';
 import { IVendor } from '@Modules/vendor/interfaces/vendor.interface';
+import { TVendorCategory } from '@Modules/vendor/constants/vendor-category.constant';
 import { ISubscription } from '@Modules/subscription/interfaces/subscription.interface';
 
 export interface ITransaction {
@@ -44,3 +45,17 @@ export type TCreateTransactionForImport = Pick<
   | 'transactionDate'
   | 'originalDescription'
 >;
+
+export interface ICategoryTotal {
+  amount: string;
+  category: TVendorCategory | null;
+}
+
+export interface ICategorySpendRow extends ICategoryTotal {
+  nonSubscriptionAmount: string;
+}
+
+export interface ITransactionSummary {
+  categories: ICategoryTotal[];
+  nonSubscriptionAmount: string;
+}

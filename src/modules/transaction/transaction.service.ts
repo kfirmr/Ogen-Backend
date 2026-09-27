@@ -3,6 +3,11 @@ import {
   IRecurrenceRequest,
 } from './interfaces/recurrence.interface';
 
+import {
+  ITransactionSummary,
+  TCreateTransactionForImport,
+} from './interfaces/transaction.interface';
+
 import { groupBy } from '@Utilities/array.utility';
 import { TypedLogger } from '../../logger/logger.service';
 import { IBatchResult } from '@Interfaces/batch.interface';
@@ -15,9 +20,10 @@ import { TransactionRepository } from './transaction.repository';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { AttachSubscriptionDto } from './dto/attach-subscription.dto';
 import { detectRecurrence } from './utilities/recurrence-detection.utility';
+import { GetTransactionSummaryDto } from './dto/get-transaction-summary.dto';
+import { toTransactionSummary } from './utilities/transaction-summary.utility';
 import { VendorAliasService } from '@Modules/vendor-alias/vendor-alias.service';
 import { SubscriptionService } from '@Modules/subscription/subscription.service';
-import { TCreateTransactionForImport } from './interfaces/transaction.interface';
 
 @Injectable()
 export class TransactionService {
@@ -34,6 +40,18 @@ export class TransactionService {
     data: GetTransactionsDto,
   ): Promise<IBatchResult<Transaction>> {
     return this.transactionRepository.getByUser(userId, data);
+  }
+
+  public async getSummary(
+    userId: string,
+    data: GetTransactionSummaryDto,
+  ): Promise<ITransactionSummary> {
+    const rows = await this.transactionRepository.getCategorySpend(
+      userId,
+      data,
+    );
+
+    return toTransactionSummary(rows);
   }
 
   public async getById(id: string, userId: string): Promise<Transaction> {
