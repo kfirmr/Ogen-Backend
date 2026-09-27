@@ -143,6 +143,21 @@ export class SubscriptionRepository {
     return Subscription.update(data, { where: { id }, transaction });
   }
 
+  public softDeleteByIds(
+    userId: string,
+    ids: string[],
+    transaction?: Transaction,
+  ): Promise<number> {
+    if (ids.length === 0) {
+      return Promise.resolve(0);
+    }
+
+    return Subscription.destroy({
+      where: { userId, id: { [Op.in]: ids } },
+      transaction,
+    });
+  }
+
   public softDelete(id: string, transaction?: Transaction): Promise<number> {
     return Subscription.destroy({ where: { id }, transaction });
   }

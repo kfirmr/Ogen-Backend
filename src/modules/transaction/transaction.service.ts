@@ -242,4 +242,36 @@ export class TransactionService {
       transaction,
     );
   }
+
+  public findByImports(
+    userId: string,
+    importIds: string[],
+    transaction?: SequelizeTransaction,
+  ): Promise<Transaction[]> {
+    return this.transactionRepository.findByImports(
+      userId,
+      importIds,
+      transaction,
+    );
+  }
+
+  public findChargedSubscriptionIds(
+    userId: string,
+    subscriptionIds: string[],
+    transaction?: SequelizeTransaction,
+  ): Promise<string[]> {
+    return this.transactionRepository.findChargedSubscriptionIds(
+      userId,
+      subscriptionIds,
+      transaction,
+    );
+  }
+
+  public softDeleteByIds(
+    userId: string,
+    ids: string[],
+    transaction?: SequelizeTransaction,
+  ): Promise<number> {
+    return this.transactionRepository.softDeleteByIds(userId, ids, transaction);
+  }
 }

@@ -35,3 +35,8 @@ export type TCreateInsight = Optional<
   | 'transactionId'
   | 'estimatedMonthlySavings'
 >;
+
+export interface IInsightLinks {
+  transactionIds: string[];
+  subscriptionIds: string[];
+}

@@ -4,10 +4,10 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 
-import { UniqueConstraintError } from 'sequelize';
 import { TypedLogger } from '../../logger/logger.service';
 import { IBatchResult } from '@Interfaces/batch.interface';
 import { DraftAction } from './entities/draft-action.entity';
+import { Transaction, UniqueConstraintError } from 'sequelize';
 import { GetDraftActionsDto } from './dto/get-draft-actions.dto';
 import { DraftActionRepository } from './draft-action.repository';
 import { TCreateDraftAction } from './interfaces/draft-action.interface';
@@ -72,5 +72,12 @@ export class DraftActionService {
     await this.draftActionRepository.update(id, { status: data.status });
 
     return this.getById(id, userId);
+  }
+
+  public deleteByInsights(
+    insightIds: string[],
+    transaction?: Transaction,
+  ): Promise<number> {
+    return this.draftActionRepository.deleteByInsights(insightIds, transaction);
   }
 }

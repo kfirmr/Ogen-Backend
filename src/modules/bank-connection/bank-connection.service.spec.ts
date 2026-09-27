@@ -4,12 +4,17 @@ import {
 } from './constants/bank-sync.constant';
 
 import { randomBytes } from 'crypto';
+import { Sequelize } from 'sequelize';
 import { TIME_UNITS } from '@Constants/date';
 import { decryptSecret } from '@Utilities/secret-cipher.utility';
 import { TBankCompany } from './constants/bank-company.constant';
+import { InsightService } from '@Modules/insight/insight.service';
 import { BankConnectionService } from './bank-connection.service';
 import { XpEventService } from '@Modules/xp-event/xp-event.service';
 import { BankConnectionRepository } from './bank-connection.repository';
+import { TransactionService } from '@Modules/transaction/transaction.service';
+import { DraftActionService } from '@Modules/draft-action/draft-action.service';
+import { SubscriptionService } from '@Modules/subscription/subscription.service';
 import { NotificationService } from '@Providers/notification/notification.service';
 import { TBankConnectionStatus } from './constants/bank-connection-status.constant';
 import { TScrapedTransactionStatus } from './constants/scraped-transaction.constant';
@@ -56,7 +61,47 @@ const buildNotificationService = () => ({
 
 const buildStatementImportService = () => ({
   startBankImport: jest.fn().mockResolvedValue({ id: 'import-1' }),
+  findIdsByBankConnection: jest.fn().mockResolvedValue(['import-1']),
 });
+
+const buildDatabaseTransaction = () => ({
+  commit: jest.fn().mockResolvedValue(undefined),
+  rollback: jest.fn().mockResolvedValue(undefined),
+});
+
+// Everything a disconnect removes: the Gym subscription was billed only on this account, while
+// Netflix is still charged on another connected card and must survive.
+const buildPurgeDependencies = () => {
+  const databaseTransaction = buildDatabaseTransaction();
+
+  return {
+    databaseTransaction,
+    sequelize: {
+      transaction: jest.fn().mockResolvedValue(databaseTransaction),
+    },
+    transactionService: {
+      softDeleteByIds: jest.fn().mockResolvedValue(3),
+      findChargedSubscriptionIds: jest
+        .fn()
+        .mockResolvedValue(['subscription-netflix']),
+      findByImports: jest.fn().mockResolvedValue([
+        { id: 'transaction-gym', subscriptionId: 'subscription-gym' },
+        { id: 'transaction-netflix', subscriptionId: 'subscription-netflix' },
+        { id: 'transaction-coffee', subscriptionId: null },
+      ]),
+    },
+    subscriptionService: {
+      softDeleteByIds: jest.fn().mockResolvedValue(1),
+    },
+    insightService: {
+      deleteByIds: jest.fn().mockResolvedValue(1),
+      findIdsLinkedTo: jest.fn().mockResolvedValue(['insight-gym']),
+    },
+    draftActionService: {
+      deleteByInsights: jest.fn().mockResolvedValue(1),
+    },
+  };
+};
 
 const buildXpEventService = () => ({
   award: jest.fn().mockResolvedValue(null),
@@ -67,15 +112,115 @@ const buildService = (
   notificationService = buildNotificationService(),
   statementImportService = buildStatementImportService(),
   xpEventService = buildXpEventService(),
+  purge = buildPurgeDependencies(),
 ) =>
   new BankConnectionService(
+    purge.sequelize as unknown as Sequelize,
+    purge.insightService as unknown as InsightService,
     xpEventService as unknown as XpEventService,
+    purge.draftActionService as unknown as DraftActionService,
+    purge.transactionService as unknown as TransactionService,
     notificationService as unknown as NotificationService,
+    purge.subscriptionService as unknown as SubscriptionService,
     statementImportService as unknown as StatementImportService,
     repository as unknown as BankConnectionRepository,
   );
 
 describe('BankConnectionService', () => {
+  describe('disconnect', () => {
+    const buildActiveRepository = () =>
+      buildRepository(
+        buildConnection({ status: TBankConnectionStatus.ACTIVE }),
+      );
+
+    it("removes the account's transactions, the subscriptions only it billed, and their insights", async () => {
+      const repository = buildActiveRepository();
+      const purge = buildPurgeDependencies();
+      const { databaseTransaction } = purge;
+
+      await buildService(
+        repository,
+        buildNotificationService(),
+        buildStatementImportService(),
+        buildXpEventService(),
+        purge,
+      ).disconnect('user-1', 'connection-1');
+
+      expect(purge.transactionService.softDeleteByIds).toHaveBeenCalledWith(
+        'user-1',
+        ['transaction-gym', 'transaction-netflix', 'transaction-coffee'],
+        databaseTransaction,
+      );
+      expect(purge.subscriptionService.softDeleteByIds).toHaveBeenCalledWith(
+        'user-1',
+        ['subscription-gym'],
+        databaseTransaction,
+      );
+      expect(purge.insightService.findIdsLinkedTo).toHaveBeenCalledWith(
+        'user-1',
+        {
+          subscriptionIds: ['subscription-gym'],
+          transactionIds: [
+            'transaction-gym',
+            'transaction-netflix',
+            'transaction-coffee',
+          ],
+        },
+        databaseTransaction,
+      );
+      expect(purge.draftActionService.deleteByInsights).toHaveBeenCalledWith(
+        ['insight-gym'],
+        databaseTransaction,
+      );
+      expect(purge.insightService.deleteByIds).toHaveBeenCalledWith(
+        ['insight-gym'],
+        databaseTransaction,
+      );
+      expect(repository.delete).toHaveBeenCalledWith(
+        'connection-1',
+        'user-1',
+        databaseTransaction,
+      );
+      expect(databaseTransaction.commit).toHaveBeenCalled();
+    });
+
+    it('refuses to disconnect while a sync is running on the account', async () => {
+      const purge = buildPurgeDependencies();
+
+      await expect(
+        buildService(
+          buildRepository(),
+          buildNotificationService(),
+          buildStatementImportService(),
+          buildXpEventService(),
+          purge,
+        ).disconnect('user-1', 'connection-1'),
+      ).rejects.toThrow('A sync is running for this connection');
+      expect(purge.transactionService.softDeleteByIds).not.toHaveBeenCalled();
+    });
+
+    it('keeps everything when a step of the removal fails', async () => {
+      const repository = buildActiveRepository();
+      const purge = buildPurgeDependencies();
+      purge.subscriptionService.softDeleteByIds.mockRejectedValue(
+        new Error('connection lost'),
+      );
+
+      await expect(
+        buildService(
+          repository,
+          buildNotificationService(),
+          buildStatementImportService(),
+          buildXpEventService(),
+          purge,
+        ).disconnect('user-1', 'connection-1'),
+      ).rejects.toThrow('connection lost');
+      expect(purge.databaseTransaction.rollback).toHaveBeenCalled();
+      expect(purge.databaseTransaction.commit).not.toHaveBeenCalled();
+      expect(repository.delete).not.toHaveBeenCalled();
+    });
+  });
+
   describe('connect', () => {
     it('rejects a login missing a field the company requires', async () => {
       const repository = buildRepository();

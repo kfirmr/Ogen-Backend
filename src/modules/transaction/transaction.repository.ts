@@ -112,6 +112,58 @@ export class TransactionRepository {
     }));
   }
 
+  public findByImports(
+    userId: string,
+    importIds: string[],
+    transaction?: SequelizeTransaction,
+  ): Promise<Transaction[]> {
+    if (importIds.length === 0) {
+      return Promise.resolve([]);
+    }
+
+    return Transaction.findAll({
+      attributes: ['id', 'subscriptionId'],
+      where: { userId, importId: { [Op.in]: importIds } },
+      transaction,
+    });
+  }
+
+  public async findChargedSubscriptionIds(
+    userId: string,
+    subscriptionIds: string[],
+    transaction?: SequelizeTransaction,
+  ): Promise<string[]> {
+    if (subscriptionIds.length === 0) {
+      return [];
+    }
+
+    const charges = await Transaction.findAll({
+      attributes: ['subscriptionId'],
+      where: { userId, subscriptionId: { [Op.in]: subscriptionIds } },
+      group: ['subscriptionId'],
+      transaction,
+    });
+
+    return charges.flatMap((charge) =>
+      charge.subscriptionId === null ? [] : [charge.subscriptionId],
+    );
+  }
+
+  public softDeleteByIds(
+    userId: string,
+    ids: string[],
+    transaction?: SequelizeTransaction,
+  ): Promise<number> {
+    if (ids.length === 0) {
+      return Promise.resolve(0);
+    }
+
+    return Transaction.destroy({
+      where: { userId, id: { [Op.in]: ids } },
+      transaction,
+    });
+  }
+
   public findByDates(
     userId: string,
     transactionDates: string[],

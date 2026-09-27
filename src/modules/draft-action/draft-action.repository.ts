@@ -10,7 +10,7 @@ import {
 } from './interfaces/draft-action.interface';
 
 import { Injectable } from '@nestjs/common';
-import { Op, WhereOptions } from 'sequelize';
+import { Op, Transaction, WhereOptions } from 'sequelize';
 import { IBatchResult } from '@Interfaces/batch.interface';
 import { DraftAction } from './entities/draft-action.entity';
 import { Vendor } from '@Modules/vendor/entities/vendor.entity';
@@ -55,6 +55,20 @@ export class DraftActionRepository {
     });
 
     return { items, nextCursor: buildNextCursor(items, batchSize) };
+  }
+
+  public deleteByInsights(
+    insightIds: string[],
+    transaction?: Transaction,
+  ): Promise<number> {
+    if (insightIds.length === 0) {
+      return Promise.resolve(0);
+    }
+
+    return DraftAction.destroy({
+      where: { insightId: { [Op.in]: insightIds } },
+      transaction,
+    });
   }
 
   public create(data: TCreateDraftAction): Promise<DraftAction> {

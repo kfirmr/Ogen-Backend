@@ -4,7 +4,9 @@ import { InsightRepository } from './insight.repository';
 import { TypedLogger } from '../../logger/logger.service';
 import { IBatchResult } from '@Interfaces/batch.interface';
 import { CreateInsightDto } from './dto/create-insight.dto';
+import { IInsightLinks } from './interfaces/insight.interface';
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Transaction as SequelizeTransaction } from 'sequelize';
 import { XP_ACTION_KEYS } from '@Constants/xp-action-keys.constant';
 import { XpEventService } from '@Modules/xp-event/xp-event.service';
 import { TInsightStatus } from './constants/insight-status.constant';
@@ -86,5 +88,20 @@ export class InsightService {
     if (data.transactionId != null) {
       await this.transactionService.getById(data.transactionId, userId);
     }
+  }
+
+  public findIdsLinkedTo(
+    userId: string,
+    linked: IInsightLinks,
+    transaction?: SequelizeTransaction,
+  ): Promise<string[]> {
+    return this.insightRepository.findIdsLinkedTo(userId, linked, transaction);
+  }
+
+  public deleteByIds(
+    ids: string[],
+    transaction?: SequelizeTransaction,
+  ): Promise<number> {
+    return this.insightRepository.deleteByIds(ids, transaction);
   }
 }

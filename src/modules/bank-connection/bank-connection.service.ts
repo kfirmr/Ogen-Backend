@@ -1,4 +1,5 @@
 import {
+  Inject,
   Injectable,
   ConflictException,
   NotFoundException,
@@ -28,6 +29,11 @@ import {
 } from './utilities/bank-credentials.utility';
 
 import {
+  collectSubscriptionIds,
+  findOrphanedSubscriptionIds,
+} from './utilities/connection-purge.utility';
+
+import {
   IPendingBankOtp,
   TBankConnectionSummary,
   IClaimedBankConnection,
@@ -38,9 +44,12 @@ import {
   IN_FLIGHT_BANK_CONNECTION_STATUSES,
 } from './constants/bank-connection-status.constant';
 
+import { Sequelize, Transaction } from 'sequelize';
 import { TypedLogger } from '../../logger/logger.service';
 import { ENCRYPTION_ENV_KEYS } from '@Constants/encryption';
 import { SubmitBankOtpDto } from './dto/submit-bank-otp.dto';
+import { InsightService } from '@Modules/insight/insight.service';
+import { ProviderNames } from '@Providers/database/provider-names';
 import { BankConnection } from './entities/bank-connection.entity';
 import { XP_ACTION_KEYS } from '@Constants/xp-action-keys.constant';
 import { XpEventService } from '@Modules/xp-event/xp-event.service';
@@ -48,8 +57,12 @@ import { toImportRows } from './utilities/scraped-transaction.utility';
 import { BankConnectionRepository } from './bank-connection.repository';
 import { CreateBankConnectionDto } from './dto/create-bank-connection.dto';
 import { EnvironmentManager } from '@Utilities/environment-manager.utility';
+import { IInsightLinks } from '@Modules/insight/interfaces/insight.interface';
+import { TransactionService } from '@Modules/transaction/transaction.service';
 import { ReportBankSyncSuccessDto } from './dto/report-bank-sync-success.dto';
 import { ReportBankSyncFailureDto } from './dto/report-bank-sync-failure.dto';
+import { DraftActionService } from '@Modules/draft-action/draft-action.service';
+import { SubscriptionService } from '@Modules/subscription/subscription.service';
 import { NotificationService } from '@Providers/notification/notification.service';
 import { StatementImportService } from '@Modules/statement-import/statement-import.service';
 import { StatementImport } from '@Modules/statement-import/entities/statement-import.entity';
@@ -67,8 +80,14 @@ export class BankConnectionService {
   );
 
   constructor(
+    @Inject(ProviderNames.SEQUELIZE)
+    private readonly sequelize: Sequelize,
+    private readonly insightService: InsightService,
     private readonly xpEventService: XpEventService,
+    private readonly draftActionService: DraftActionService,
+    private readonly transactionService: TransactionService,
     private readonly notificationService: NotificationService,
+    private readonly subscriptionService: SubscriptionService,
     private readonly statementImportService: StatementImportService,
     private readonly bankConnectionRepository: BankConnectionRepository,
   ) {}
@@ -139,11 +158,28 @@ export class BankConnectionService {
     return this.getSummary(id, userId);
   }
 
+  // Disconnecting removes everything the account brought in, in one unit, so a failure part-way
+  // can never leave its transactions behind without the connection or the other way round.
   public async disconnect(userId: string, id: string): Promise<void> {
-    const deletedCount = await this.bankConnectionRepository.delete(id, userId);
+    const connection = await this.getOwned(id, userId);
 
-    if (deletedCount === 0) {
-      throw new NotFoundException('Bank connection not found');
+    this.assertNotInFlight(connection);
+
+    const transaction = await this.sequelize.transaction();
+
+    try {
+      await this.purgeConnectionData(connection, transaction);
+      await this.bankConnectionRepository.delete(id, userId, transaction);
+      await transaction.commit();
+    } catch (error) {
+      await transaction.rollback();
+      this.logger.error({
+        error,
+        bankConnectionId: id,
+        message: 'Failed to disconnect bank connection',
+      });
+
+      throw error;
     }
   }
 
@@ -327,6 +363,69 @@ export class BankConnectionService {
     }
 
     return connection;
+  }
+
+  private async purgeConnectionData(
+    connection: BankConnection,
+    transaction: Transaction,
+  ): Promise<void> {
+    const { userId } = connection;
+    const importIds = await this.statementImportService.findIdsByBankConnection(
+      userId,
+      connection.id,
+      transaction,
+    );
+    const importedTransactions = await this.transactionService.findByImports(
+      userId,
+      importIds,
+      transaction,
+    );
+    const transactionIds = importedTransactions.map((charge) => charge.id);
+    const chargedSubscriptionIds = collectSubscriptionIds(importedTransactions);
+
+    await this.transactionService.softDeleteByIds(
+      userId,
+      transactionIds,
+      transaction,
+    );
+
+    const stillChargedIds =
+      await this.transactionService.findChargedSubscriptionIds(
+        userId,
+        chargedSubscriptionIds,
+        transaction,
+      );
+    const subscriptionIds = findOrphanedSubscriptionIds(
+      chargedSubscriptionIds,
+      stillChargedIds,
+    );
+
+    await this.subscriptionService.softDeleteByIds(
+      userId,
+      subscriptionIds,
+      transaction,
+    );
+    await this.deleteLinkedInsights(
+      userId,
+      { subscriptionIds, transactionIds },
+      transaction,
+    );
+  }
+
+  // A cancellation draft belongs to its insight, so drafts go first.
+  private async deleteLinkedInsights(
+    userId: string,
+    linked: IInsightLinks,
+    transaction: Transaction,
+  ): Promise<void> {
+    const insightIds = await this.insightService.findIdsLinkedTo(
+      userId,
+      linked,
+      transaction,
+    );
+
+    await this.draftActionService.deleteByInsights(insightIds, transaction);
+    await this.insightService.deleteByIds(insightIds, transaction);
   }
 
   private assertNotInFlight(connection: BankConnection): void {

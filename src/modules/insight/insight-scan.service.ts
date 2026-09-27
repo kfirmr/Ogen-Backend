@@ -15,6 +15,7 @@ import { TCreateInsight } from './interfaces/insight.interface';
 import { TInsightType } from './constants/insight-type.constant';
 import { InsightScanRepository } from './insight-scan.repository';
 import { IDuplicateLeakGroup } from './interfaces/insight-scan.interface';
+import { INSIGHT_METADATA_KEYS } from './constants/insight-metadata.constant';
 import { SERVICE_TYPE_LABELS } from '@Modules/vendor/constants/service-type.constant';
 
 @Injectable()
@@ -82,7 +83,7 @@ export class InsightScanService {
         metadata: {
           serviceType: group.serviceType,
           vendorNames: group.vendorNames,
-          subscriptionIds: group.subscriptionIds,
+          [INSIGHT_METADATA_KEYS.SUBSCRIPTION_IDS]: group.subscriptionIds,
         },
       })),
     );
