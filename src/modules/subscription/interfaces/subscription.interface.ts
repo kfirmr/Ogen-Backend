@@ -34,3 +34,5 @@ export type TCreateSubscription = Optional<
   | 'cancellationEmail'
   | 'cancellationRequestedAt'
 >;
+
+export type TSubscriptionPrice = Pick<ISubscription, 'id' | 'amount'>;

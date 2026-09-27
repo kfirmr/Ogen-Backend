@@ -23,6 +23,7 @@ import { IBatchResult } from '@Interfaces/batch.interface';
 import { Transaction } from './entities/transaction.entity';
 import { Vendor } from '@Modules/vendor/entities/vendor.entity';
 import { GetTransactionsDto } from './dto/get-transactions.dto';
+import { IVendorChargeLinkRequest } from './interfaces/recurrence.interface';
 import { GetTransactionSummaryDto } from './dto/get-transaction-summary.dto';
 import { toVendorCategory } from '@Modules/vendor/utilities/vendor-category.utility';
 
@@ -174,14 +175,22 @@ export class TransactionRepository {
   }
 
   public linkUnassignedVendorCharges(
-    userId: string,
-    vendorId: string,
-    subscriptionId: string,
+    request: IVendorChargeLinkRequest,
     transaction?: SequelizeTransaction,
   ): Promise<[number]> {
     return Transaction.update(
-      { subscriptionId },
-      { where: { userId, vendorId, subscriptionId: null }, transaction },
+      { subscriptionId: request.subscriptionId },
+      {
+        where: {
+          subscriptionId: null,
+          userId: request.userId,
+          vendorId: request.vendorId,
+          amount: {
+            [Op.between]: [request.amountRange.min, request.amountRange.max],
+          },
+        },
+        transaction,
+      },
     );
   }
 

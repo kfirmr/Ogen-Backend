@@ -27,3 +27,15 @@ export interface IBillingCycleWindow {
   toleranceDays: number;
   maxGapSpreadDays: number;
 }
+
+export interface IAmountRange {
+  min: string;
+  max: string;
+}
+
+export interface IVendorChargeLinkRequest {
+  userId: string;
+  vendorId: string;
+  subscriptionId: string;
+  amountRange: IAmountRange;
+}

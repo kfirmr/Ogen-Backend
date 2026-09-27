@@ -21,9 +21,11 @@ import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { AttachSubscriptionDto } from './dto/attach-subscription.dto';
 import { detectRecurrence } from './utilities/recurrence-detection.utility';
 import { GetTransactionSummaryDto } from './dto/get-transaction-summary.dto';
+import { getAmountToleranceRange } from './utilities/amount-tolerance.utility';
 import { toTransactionSummary } from './utilities/transaction-summary.utility';
 import { VendorAliasService } from '@Modules/vendor-alias/vendor-alias.service';
 import { SubscriptionService } from '@Modules/subscription/subscription.service';
+import { TSubscriptionPrice } from '@Modules/subscription/interfaces/subscription.interface';
 
 @Injectable()
 export class TransactionService {
@@ -130,16 +132,21 @@ export class TransactionService {
     );
   }
 
+  // Only charges at the plan's price are its billings; anything else bought from the same vendor
+  // (a drink at the gym) stays regular spend.
   public async linkUnassignedVendorCharges(
     userId: string,
     vendorId: string,
-    subscriptionId: string,
+    subscription: TSubscriptionPrice,
     transaction?: SequelizeTransaction,
   ): Promise<void> {
     await this.transactionRepository.linkUnassignedVendorCharges(
-      userId,
-      vendorId,
-      subscriptionId,
+      {
+        userId,
+        vendorId,
+        subscriptionId: subscription.id,
+        amountRange: getAmountToleranceRange(subscription.amount),
+      },
       transaction,
     );
   }
