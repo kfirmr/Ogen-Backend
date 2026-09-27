@@ -153,11 +153,11 @@ describe('BankConnectionService', () => {
   });
 
   describe('claim', () => {
-    it('reads three months back on the first sync', async () => {
+    it('reads a year back on the first sync', async () => {
       const [claimed] = await buildService().claim(TBankSyncScope.SCHEDULED);
       const historyMs = Date.now() - claimed.startDate.getTime();
 
-      expect(Math.round(historyMs / TIME_UNITS.DAYS)).toBe(90);
+      expect(Math.round(historyMs / TIME_UNITS.DAYS)).toBe(365);
     });
 
     it('overlaps the previous sync by a week', async () => {

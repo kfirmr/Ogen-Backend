@@ -13,8 +13,10 @@ export enum TBankSyncFailure {
   INVALID_CREDENTIALS = 'INVALID_CREDENTIALS',
 }
 
+// A first sync reads a full year: the furthest most scrapers reach (Isracard, Amex and the banks
+// clamp there), and enough history for yearly subscriptions and spending baselines to show up.
 export const BANK_SYNC_WINDOWS = {
-  INITIAL_HISTORY_MS: 3 * TIME_UNITS.MONTHS,
+  INITIAL_HISTORY_MS: TIME_UNITS.YEARS,
   RESYNC_OVERLAP_MS: TIME_UNITS.WEEKS,
   MIN_SYNC_INTERVAL_MS: 20 * TIME_UNITS.HOURS,
   STALE_CLAIM_MS: TIME_UNITS.HOURS,
