@@ -22,6 +22,7 @@ import {
 } from './utilities/bank-connection.utility';
 
 import {
+  buildLoginHint,
   pickCompanyCredentials,
   findMissingCredentialFields,
 } from './utilities/bank-credentials.utility';
@@ -95,8 +96,13 @@ export class BankConnectionService {
       );
     }
 
+    const companyCredentials = pickCompanyCredentials(
+      data.company,
+      data.credentials,
+    );
+    const loginHint = buildLoginHint(companyCredentials);
     const encryptedCredentials = encryptSecret(
-      JSON.stringify(pickCompanyCredentials(data.company, data.credentials)),
+      JSON.stringify(companyCredentials),
       { key: this.credentialsKey, associatedData: userId },
     );
     const existingConnection =
@@ -108,6 +114,7 @@ export class BankConnectionService {
     if (existingConnection === null) {
       const connection = await this.bankConnectionRepository.create({
         userId,
+        loginHint,
         encryptedCredentials,
         company: data.company,
       });
@@ -119,6 +126,7 @@ export class BankConnectionService {
 
     await this.bankConnectionRepository.update(existingConnection.id, {
       ...CLEARED_OTP,
+      loginHint,
       lastError: null,
       encryptedCredentials,
       status: TBankConnectionStatus.PENDING_VALIDATION,

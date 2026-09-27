@@ -198,6 +198,7 @@ Table bank_connections {
   last_attempted_at timestamptz [null, note: 'When the worker last claimed this connection']
   last_synced_at timestamptz [null]
   last_error text [null]
+  login_hint jsonb [null, note: 'Non-secret login fragments for display: card last 4, ID last 3, username first 2']
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz [not null, default: `now()`]
 

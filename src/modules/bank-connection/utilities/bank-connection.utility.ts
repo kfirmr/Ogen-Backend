@@ -14,6 +14,7 @@ export const toBankConnectionSummary = (
   company: connection.company,
   createdAt: connection.createdAt,
   lastError: connection.lastError,
+  loginHint: connection.loginHint,
   lastSyncedAt: connection.lastSyncedAt,
   otpRequestedAt: connection.otpRequestedAt,
 });

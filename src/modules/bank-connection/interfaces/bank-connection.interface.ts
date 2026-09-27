@@ -2,6 +2,13 @@ import { Optional } from 'sequelize';
 import { TBankCompany } from '../constants/bank-company.constant';
 import { TBankConnectionStatus } from '../constants/bank-connection-status.constant';
 
+// Only non-secret fragments of the login, kept so the app can show which account is connected.
+export interface IBankLoginHint {
+  idLastDigits: string | null;
+  cardLastDigits: string | null;
+  usernamePrefix: string | null;
+}
+
 export interface IBankConnection {
   id: string;
   userId: string;
@@ -15,6 +22,7 @@ export interface IBankConnection {
   lastAttemptedAt: Date | null;
   status: TBankConnectionStatus;
   encryptedOtpCode: string | null;
+  loginHint: IBankLoginHint | null;
 }
 
 export type TCreateBankConnection = Optional<
@@ -28,6 +36,7 @@ export type TCreateBankConnection = Optional<
   | 'otpRequestedAt'
   | 'lastAttemptedAt'
   | 'encryptedOtpCode'
+  | 'loginHint'
 >;
 
 export type TBankConnectionSummary = Pick<
@@ -37,6 +46,7 @@ export type TBankConnectionSummary = Pick<
   | 'company'
   | 'createdAt'
   | 'lastError'
+  | 'loginHint'
   | 'lastSyncedAt'
   | 'otpRequestedAt'
 >;

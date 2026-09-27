@@ -17,6 +17,7 @@ import {
 } from '../constants/bank-company.constant';
 
 import {
+  IBankLoginHint,
   IBankConnection,
   TCreateBankConnection,
 } from '../interfaces/bank-connection.interface';
@@ -85,6 +86,10 @@ export class BankConnection
   @AllowNull(true)
   @Column({ type: DataType.TEXT })
   declare lastError: string | null;
+
+  @AllowNull(true)
+  @Column({ type: DataType.JSONB })
+  declare loginHint: IBankLoginHint | null;
 
   @CreatedAt
   declare createdAt: Date;
