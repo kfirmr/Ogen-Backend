@@ -15,6 +15,7 @@ import {
   ITransaction,
   ICategorySpendRow,
   TCreateTransaction,
+  ISubscriptionChargeRow,
 } from './interfaces/transaction.interface';
 
 import { Injectable } from '@nestjs/common';
@@ -84,6 +85,29 @@ export class TransactionRepository {
       amount: String(group.get('amount')),
       category: toVendorCategory(group.get('category')),
       nonSubscriptionAmount: String(group.get('nonSubscriptionAmount')),
+    }));
+  }
+
+  public async getSubscriptionCharges(
+    userId: string,
+    data: GetTransactionSummaryDto,
+  ): Promise<ISubscriptionChargeRow[]> {
+    const groups = await Transaction.findAll({
+      where: {
+        userId,
+        subscriptionId: { [Op.ne]: null },
+        transactionDate: { [Op.between]: [data.fromDate, data.toDate] },
+      },
+      attributes: [
+        'subscriptionId',
+        [Sequelize.fn('SUM', Sequelize.col('amount')), 'amount'],
+      ],
+      group: ['subscriptionId'],
+    });
+
+    return groups.map((group) => ({
+      amount: String(group.get('amount')),
+      subscriptionId: String(group.get('subscriptionId')),
     }));
   }
 

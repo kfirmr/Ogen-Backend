@@ -45,6 +45,10 @@ export class SubscriptionService {
     return this.subscriptionRepository.getByUser(userId, data);
   }
 
+  public findByIds(userId: string, ids: string[]): Promise<Subscription[]> {
+    return this.subscriptionRepository.findByIds(userId, ids);
+  }
+
   public async getById(id: string, userId: string): Promise<Subscription> {
     const subscription = await this.subscriptionRepository.findById(id, userId);
 
