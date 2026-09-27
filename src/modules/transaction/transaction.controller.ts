@@ -17,6 +17,8 @@ import { GetTransactionsDto } from './dto/get-transactions.dto';
 import { CurrentUser } from '@Decorators/current-user.decorator';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { AttachSubscriptionDto } from './dto/attach-subscription.dto';
+import { ITransactionSummary } from './interfaces/transaction.interface';
+import { GetTransactionSummaryDto } from './dto/get-transaction-summary.dto';
 
 @ApiTags('transaction')
 @Controller('transaction')
@@ -29,6 +31,14 @@ export class TransactionController {
     @Body() data: GetTransactionsDto,
   ): Promise<IBatchResult<Transaction>> {
     return this.transactionService.getByUser(userId, data);
+  }
+
+  @Post('summary')
+  public getSummary(
+    @CurrentUser() userId: string,
+    @Body() data: GetTransactionSummaryDto,
+  ): Promise<ITransactionSummary> {
+    return this.transactionService.getSummary(userId, data);
   }
 
   @Post()

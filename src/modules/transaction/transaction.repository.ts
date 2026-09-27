@@ -1,5 +1,6 @@
 import {
   Op,
+  Sequelize,
   WhereOptions,
   Transaction as SequelizeTransaction,
 } from 'sequelize';
@@ -12,6 +13,7 @@ import {
 
 import {
   ITransaction,
+  ICategorySpendRow,
   TCreateTransaction,
 } from './interfaces/transaction.interface';
 
@@ -20,6 +22,12 @@ import { IBatchResult } from '@Interfaces/batch.interface';
 import { Transaction } from './entities/transaction.entity';
 import { Vendor } from '@Modules/vendor/entities/vendor.entity';
 import { GetTransactionsDto } from './dto/get-transactions.dto';
+import { GetTransactionSummaryDto } from './dto/get-transaction-summary.dto';
+import { toVendorCategory } from '@Modules/vendor/utilities/vendor-category.utility';
+
+// Subscription charges are counted from the subscription's own price, so they are left out here.
+const NON_SUBSCRIPTION_AMOUNT_SQL =
+  'CASE WHEN "Transaction"."subscription_id" IS NULL THEN "Transaction"."amount" ELSE 0 END';
 
 @Injectable()
 export class TransactionRepository {
@@ -48,6 +56,35 @@ export class TransactionRepository {
     });
 
     return { items, nextCursor: buildNextCursor(items, batchSize) };
+  }
+
+  // Summed in SQL so a month's totals never depend on how many rows a client page holds.
+  public async getCategorySpend(
+    userId: string,
+    data: GetTransactionSummaryDto,
+  ): Promise<ICategorySpendRow[]> {
+    const groups = await Transaction.findAll({
+      where: {
+        userId,
+        transactionDate: { [Op.between]: [data.fromDate, data.toDate] },
+      },
+      attributes: [
+        [Sequelize.col('vendor.category'), 'category'],
+        [Sequelize.fn('SUM', Sequelize.col('Transaction.amount')), 'amount'],
+        [
+          Sequelize.fn('SUM', Sequelize.literal(NON_SUBSCRIPTION_AMOUNT_SQL)),
+          'nonSubscriptionAmount',
+        ],
+      ],
+      include: [{ model: Vendor, attributes: [], required: false }],
+      group: ['vendor.category'],
+    });
+
+    return groups.map((group) => ({
+      amount: String(group.get('amount')),
+      category: toVendorCategory(group.get('category')),
+      nonSubscriptionAmount: String(group.get('nonSubscriptionAmount')),
+    }));
   }
 
   public findByDates(
