@@ -48,6 +48,8 @@ import { SubscriptionService } from '@Modules/subscription/subscription.service'
 import { IMPORT_STATUS_PATCH_BY_STATUS } from './constants/status-patch.constant';
 import { buildDedupeKey } from '@Modules/transaction/utilities/dedupe-key.utility';
 import { LeakResponseService } from '@Modules/leak-response/leak-response.service';
+import { resolveChargedSubscriptionId } from './utilities/subscription-charge.utility';
+import { TSubscriptionPrice } from '@Modules/subscription/interfaces/subscription.interface';
 import { DEFAULT_BILLING_CYCLE } from '@Modules/subscription/constants/billing-cycle.constant';
 import { VendorClassifierService } from '@Modules/vendor-classifier/vendor-classifier.service';
 import { TCreateTransactionForImport } from '@Modules/transaction/interfaces/transaction.interface';
@@ -65,6 +67,7 @@ interface IRowDedupeState {
 interface IPreparedTransactionRow {
   vendor: Vendor | null;
   data: TCreateTransactionForImport;
+  vendorSubscription: TSubscriptionPrice | null;
 }
 
 interface IPendingClassification {
@@ -76,11 +79,11 @@ interface IPendingClassification {
 // Aliased rather than inlined: a comma inside an interface member's generic confuses the
 // pyramid-interface-keys formatter plugin.
 type TVendorByPattern = Map<string, Vendor>;
-type TSubscriptionIdByVendorId = Map<string, string>;
+type TSubscriptionByVendorId = Map<string, TSubscriptionPrice>;
 
 interface IRowLookups {
   vendorByPattern: TVendorByPattern;
-  subscriptionIdByVendorId: TSubscriptionIdByVendorId;
+  subscriptionByVendorId: TSubscriptionByVendorId;
 }
 
 interface IRecurrenceCandidate {
@@ -171,15 +174,15 @@ export class StatementImportService {
       this.resolveVendorsForRows(rows),
       this.loadDedupeState(userId, rows),
     ]);
-    const subscriptionIdByVendorId =
-      await this.subscriptionService.getActiveIdsByVendor(userId, [
+    const subscriptionByVendorId =
+      await this.subscriptionService.getActiveByVendor(userId, [
         ...new Set([...vendorByPattern.values()].map((vendor) => vendor.id)),
       ]);
 
     const preparedRows = rows.flatMap((row) => {
       const preparedRow = this.formatRow(importId, row, dedupeState, {
         vendorByPattern,
-        subscriptionIdByVendorId,
+        subscriptionByVendorId,
       });
 
       return preparedRow === null ? [] : [preparedRow];
@@ -422,10 +425,14 @@ export class StatementImportService {
       row.originalDescription,
     );
     const vendor = lookups.vendorByPattern.get(pattern) ?? null;
-    const subscriptionId =
+    const vendorSubscription =
       vendor === null
         ? null
-        : (lookups.subscriptionIdByVendorId.get(vendor.id) ?? null);
+        : (lookups.subscriptionByVendorId.get(vendor.id) ?? null);
+    const subscriptionId = resolveChargedSubscriptionId(
+      row.amount,
+      vendorSubscription,
+    );
 
     dedupeState.seenKeys.add(rowKey);
 
@@ -435,6 +442,7 @@ export class StatementImportService {
 
     return {
       vendor,
+      vendorSubscription,
       data: { ...row, importId, subscriptionId, vendorId: vendor?.id ?? null },
     };
   }
@@ -561,10 +569,15 @@ export class StatementImportService {
   ): IRecurrenceCandidate[] {
     const candidateByVendorId = new Map<string, IRecurrenceCandidate>();
 
-    for (const { vendor, data } of preparedRows) {
+    for (const { vendor, data, vendorSubscription } of preparedRows) {
       const isUnassigned = vendor != null && data.subscriptionId == null;
+      const hasActiveSubscription = vendorSubscription !== null;
 
-      if (!isUnassigned || !isSubscriptionCandidate(vendor)) {
+      if (!isUnassigned || hasActiveSubscription) {
+        continue;
+      }
+
+      if (!isSubscriptionCandidate(vendor)) {
         continue;
       }
 
@@ -610,7 +623,7 @@ export class StatementImportService {
       await this.transactionService.linkUnassignedVendorCharges(
         userId,
         candidate.vendor.id,
-        subscription.id,
+        { id: subscription.id, amount: subscription.amount },
         transaction,
       );
 

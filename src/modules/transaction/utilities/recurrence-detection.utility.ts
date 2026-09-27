@@ -16,6 +16,7 @@ import {
 } from '@Modules/subscription/constants/billing-cycle.constant';
 
 import { calculateDateDifference } from '@Utilities/date.utility';
+import { isWithinAmountTolerance } from './amount-tolerance.utility';
 
 const sortChronologically = (charges: IRecurringCharge[]): IRecurringCharge[] =>
   [...charges].sort((first, second) =>
@@ -33,10 +34,6 @@ const getMedian = (values: number[]): number => {
 
   return sortedValues[middleIndex];
 };
-
-const isWithinAmountTolerance = (amount: string, anchorAmount: string) =>
-  Math.abs(Number(amount) - Number(anchorAmount)) <=
-  Number(anchorAmount) * RECURRENCE_THRESHOLDS.AMOUNT_TOLERANCE_RATIO;
 
 // Incidental purchases at the same vendor (a drink at the gym) must not mask the plan's own
 // charges, so the cadence is checked on the largest group of similarly-priced charges only.

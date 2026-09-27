@@ -68,7 +68,7 @@ export class SubscriptionRepository {
     }
 
     return Subscription.findAll({
-      attributes: ['id', 'vendorId'],
+      attributes: ['id', 'amount', 'vendorId'],
       order: [['createdAt', 'ASC']],
       where: {
         userId,

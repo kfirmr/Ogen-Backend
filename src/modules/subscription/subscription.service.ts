@@ -23,6 +23,7 @@ import { XpEventService } from '@Modules/xp-event/xp-event.service';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 import { RequestCancellationDto } from './dto/request-cancellation.dto';
+import { TSubscriptionPrice } from './interfaces/subscription.interface';
 import { TServiceType } from '@Modules/vendor/constants/service-type.constant';
 import { TSubscriptionStatus } from './constants/subscription-status.constant';
 
@@ -99,24 +100,29 @@ export class SubscriptionService {
     }
   }
 
-  // Keyed by vendor, keeping each vendor's oldest active subscription.
-  public async getActiveIdsByVendor(
+  // Keyed by vendor, keeping each vendor's oldest active subscription with the price its charges
+  // are matched against.
+  public async getActiveByVendor(
     userId: string,
     vendorIds: string[],
-  ): Promise<Map<string, string>> {
+  ): Promise<Map<string, TSubscriptionPrice>> {
     const subscriptions = await this.subscriptionRepository.findActiveByVendors(
       userId,
       vendorIds,
     );
 
-    return subscriptions.reduce((idsByVendor, subscription) => {
+    return subscriptions.reduce((subscriptionByVendor, subscription) => {
       const vendorId = subscription.vendorId;
-      const isFirstForVendor = vendorId != null && !idsByVendor.has(vendorId);
+      const isFirstForVendor =
+        vendorId != null && !subscriptionByVendor.has(vendorId);
 
       return isFirstForVendor
-        ? idsByVendor.set(vendorId, subscription.id)
-        : idsByVendor;
-    }, new Map<string, string>());
+        ? subscriptionByVendor.set(vendorId, {
+            id: subscription.id,
+            amount: subscription.amount,
+          })
+        : subscriptionByVendor;
+    }, new Map<string, TSubscriptionPrice>());
   }
 
   public getActiveVendorIds(userId: string): Promise<string[]> {

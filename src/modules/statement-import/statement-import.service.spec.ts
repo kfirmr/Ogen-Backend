@@ -171,7 +171,7 @@ describe('StatementImportService', () => {
       .fn()
       .mockResolvedValue({ id: 'subscription-1' });
     const subscriptionService = {
-      getActiveIdsByVendor: jest.fn().mockResolvedValue(new Map()),
+      getActiveByVendor: jest.fn().mockResolvedValue(new Map()),
       findOrCreateForImport,
     } as unknown as SubscriptionService;
 
@@ -269,7 +269,7 @@ describe('StatementImportService', () => {
 
     const findOrCreateForImport = jest.fn();
     const subscriptionService = {
-      getActiveIdsByVendor: jest.fn().mockResolvedValue(new Map()),
+      getActiveByVendor: jest.fn().mockResolvedValue(new Map()),
       findOrCreateForImport,
     } as unknown as SubscriptionService;
 
@@ -329,7 +329,7 @@ describe('StatementImportService', () => {
       .fn()
       .mockResolvedValue({ id: 'subscription-5' });
     const subscriptionService = {
-      getActiveIdsByVendor: jest.fn().mockResolvedValue(new Map()),
+      getActiveByVendor: jest.fn().mockResolvedValue(new Map()),
       findOrCreateForImport,
     } as unknown as SubscriptionService;
 
@@ -385,7 +385,7 @@ describe('StatementImportService', () => {
 
     const findOrCreateForImport = jest.fn();
     const subscriptionService = {
-      getActiveIdsByVendor: jest.fn().mockResolvedValue(new Map()),
+      getActiveByVendor: jest.fn().mockResolvedValue(new Map()),
       findOrCreateForImport,
     } as unknown as SubscriptionService;
 
@@ -445,9 +445,9 @@ describe('StatementImportService', () => {
 
     const findOrCreateForImport = jest
       .fn()
-      .mockResolvedValue({ id: 'subscription-2' });
+      .mockResolvedValue({ id: 'subscription-2', amount: '99.00' });
     const subscriptionService = {
-      getActiveIdsByVendor: jest.fn().mockResolvedValue(new Map()),
+      getActiveByVendor: jest.fn().mockResolvedValue(new Map()),
       findOrCreateForImport,
     } as unknown as SubscriptionService;
 
@@ -523,7 +523,7 @@ describe('StatementImportService', () => {
     expect(linkUnassignedVendorCharges).toHaveBeenCalledWith(
       'user-1',
       'vendor-3',
-      'subscription-2',
+      { id: 'subscription-2', amount: '99.00' },
       expect.anything(),
     );
     expect(classifyConfirmedSubscriptions).toHaveBeenCalledWith(['GYM CLUB']);
@@ -555,7 +555,7 @@ describe('StatementImportService', () => {
     } as unknown as VendorService;
 
     const subscriptionService = {
-      getActiveIdsByVendor: jest.fn().mockResolvedValue(new Map()),
+      getActiveByVendor: jest.fn().mockResolvedValue(new Map()),
       findOrCreateForImport: jest
         .fn()
         .mockResolvedValue({ id: 'subscription-2' }),
@@ -633,7 +633,7 @@ describe('StatementImportService', () => {
 
     const findOrCreateForImport = jest.fn();
     const subscriptionService = {
-      getActiveIdsByVendor: jest.fn().mockResolvedValue(new Map()),
+      getActiveByVendor: jest.fn().mockResolvedValue(new Map()),
       findOrCreateForImport,
     } as unknown as SubscriptionService;
 
@@ -685,7 +685,7 @@ describe('StatementImportService', () => {
     } as unknown as VendorService;
 
     const subscriptionService = {
-      getActiveIdsByVendor: jest.fn().mockResolvedValue(new Map()),
+      getActiveByVendor: jest.fn().mockResolvedValue(new Map()),
       findOrCreateForImport: jest.fn(),
     } as unknown as SubscriptionService;
 
@@ -771,7 +771,7 @@ describe('StatementImportService', () => {
     } as unknown as VendorService;
 
     const subscriptionService = {
-      getActiveIdsByVendor: jest.fn().mockResolvedValue(new Map()),
+      getActiveByVendor: jest.fn().mockResolvedValue(new Map()),
       findOrCreateForImport: jest.fn(),
     } as unknown as SubscriptionService;
 
@@ -832,7 +832,7 @@ describe('StatementImportService', () => {
     } as unknown as VendorService;
 
     const subscriptionService = {
-      getActiveIdsByVendor: jest.fn().mockResolvedValue(new Map()),
+      getActiveByVendor: jest.fn().mockResolvedValue(new Map()),
       findOrCreateForImport: jest.fn(),
     } as unknown as SubscriptionService;
 
@@ -903,7 +903,7 @@ describe('StatementImportService', () => {
         [normalizeDescription('RAMI LEVY')]: 'vendor-1',
       }),
       {
-        getActiveIdsByVendor: jest.fn().mockResolvedValue(new Map()),
+        getActiveByVendor: jest.fn().mockResolvedValue(new Map()),
         findOrCreateForImport: jest.fn(),
       } as unknown as SubscriptionService,
       buildLeakResponseService(),
@@ -943,7 +943,7 @@ describe('StatementImportService', () => {
     } as unknown as VendorService;
 
     const subscriptionService = {
-      getActiveIdsByVendor: jest.fn().mockResolvedValue(new Map()),
+      getActiveByVendor: jest.fn().mockResolvedValue(new Map()),
       findOrCreateForImport: jest.fn(),
     } as unknown as SubscriptionService;
 
@@ -1009,7 +1009,7 @@ describe('StatementImportService', () => {
     } as unknown as VendorService;
 
     const subscriptionService = {
-      getActiveIdsByVendor: jest.fn().mockResolvedValue(new Map()),
+      getActiveByVendor: jest.fn().mockResolvedValue(new Map()),
       findOrCreateForImport: jest.fn(),
     } as unknown as SubscriptionService;
 
@@ -1058,7 +1058,7 @@ describe('StatementImportService', () => {
     } as unknown as VendorService;
 
     const subscriptionService = {
-      getActiveIdsByVendor: jest.fn().mockResolvedValue(new Map()),
+      getActiveByVendor: jest.fn().mockResolvedValue(new Map()),
       findOrCreateForImport: jest.fn(),
     } as unknown as SubscriptionService;
 
@@ -1098,7 +1098,7 @@ describe('StatementImportService', () => {
     } as unknown as VendorService;
 
     const subscriptionService = {
-      getActiveIdsByVendor: jest.fn().mockResolvedValue(new Map()),
+      getActiveByVendor: jest.fn().mockResolvedValue(new Map()),
       findOrCreateForImport: jest.fn(),
     } as unknown as SubscriptionService;
 
@@ -1157,7 +1157,7 @@ describe('StatementImportService', () => {
     } as unknown as VendorService;
 
     const subscriptionService = {
-      getActiveIdsByVendor: jest.fn().mockResolvedValue(new Map()),
+      getActiveByVendor: jest.fn().mockResolvedValue(new Map()),
       findOrCreateForImport: jest.fn(),
     } as unknown as SubscriptionService;
 
@@ -1193,5 +1193,71 @@ describe('StatementImportService', () => {
       'import-1',
       expect.objectContaining({ status: 'FAILED' }),
     );
+  });
+
+  it('links only the plan-priced charge of a subscribed vendor, not a drink bought there', async () => {
+    const rows = buildRows([
+      ['2026-07-03', 'SPACE GYM', '199.00', 'ILS', '199.00', 'ILS', '', ''],
+      ['2026-07-15', 'SPACE GYM', '12.00', 'ILS', '12.00', 'ILS', '', ''],
+    ]);
+
+    const vendor = {
+      id: 'vendor-gym',
+      name: 'Space Gym',
+      billingCycle: TBillingCycle.MONTHLY,
+      category: TVendorCategory.LEISURE_SPORTS,
+      chargeKind: TChargeKind.SUBSCRIPTION,
+    };
+    const vendorService = {
+      findOrCreateManyByName: resolveEveryNameTo(vendor),
+      getByIds: jest.fn().mockResolvedValue([vendor]),
+    } as unknown as VendorService;
+
+    const findOrCreateForImport = jest.fn();
+    const subscriptionService = {
+      findOrCreateForImport,
+      getActiveByVendor: jest
+        .fn()
+        .mockResolvedValue(
+          new Map([
+            ['vendor-gym', { id: 'subscription-gym', amount: '199.00' }],
+          ]),
+        ),
+    } as unknown as SubscriptionService;
+
+    const baseTransactionService = buildTransactionService();
+    const detectRecurrenceForVendors = jest.fn().mockResolvedValue(new Map());
+    const transactionService = {
+      ...baseTransactionService,
+      detectRecurrenceForVendors,
+    } as unknown as TransactionService;
+
+    const service = new StatementImportService(
+      buildSequelize(),
+      vendorService,
+      transactionService,
+      buildVendorAliasService(),
+      subscriptionService,
+      buildLeakResponseService(),
+      buildCancellationContactService(),
+      buildVendorClassifierService(),
+      buildStatementImportRepository(),
+    );
+
+    await service.startBankImport('user-1', buildBankImport(rows));
+    await flushDeferredPipeline();
+
+    expect(transactionService.bulkCreateForImport).toHaveBeenCalledWith(
+      'user-1',
+      [
+        expect.objectContaining({
+          amount: '199.00',
+          subscriptionId: 'subscription-gym',
+        }),
+        expect.objectContaining({ amount: '12.00', subscriptionId: null }),
+      ],
+    );
+    expect(detectRecurrenceForVendors).toHaveBeenCalledWith('user-1', []);
+    expect(findOrCreateForImport).not.toHaveBeenCalled();
   });
 });
