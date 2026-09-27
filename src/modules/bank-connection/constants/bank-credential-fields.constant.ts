@@ -69,3 +69,10 @@ export const REQUIRED_CREDENTIAL_FIELDS_BY_COMPANY: Record<
     BANK_CREDENTIAL_FIELDS.PASSWORD,
   ],
 };
+
+// Short enough that the fragments identify the account to its owner without exposing the login.
+export const LOGIN_HINT_LENGTHS = {
+  ID_LAST_DIGITS: 3,
+  USERNAME_PREFIX: 2,
+  CARD_LAST_DIGITS: 4,
+} as const;

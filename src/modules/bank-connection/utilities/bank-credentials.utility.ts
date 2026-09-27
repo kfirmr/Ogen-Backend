@@ -1,5 +1,11 @@
+import {
+  LOGIN_HINT_LENGTHS,
+  BANK_CREDENTIAL_FIELDS,
+  REQUIRED_CREDENTIAL_FIELDS_BY_COMPANY,
+} from '../constants/bank-credential-fields.constant';
+
 import { TBankCompany } from '../constants/bank-company.constant';
-import { REQUIRED_CREDENTIAL_FIELDS_BY_COMPANY } from '../constants/bank-credential-fields.constant';
+import { IBankLoginHint } from '../interfaces/bank-connection.interface';
 
 const hasCredentialValue = (value?: unknown): value is string => {
   if (typeof value !== 'string') {
@@ -29,3 +35,30 @@ export const pickCompanyCredentials = (
       credentials[field].trim(),
     ]),
   );
+
+const takeLast = (length: number, value?: string | null): string | null =>
+  value == null ? null : value.slice(-length);
+
+const takeFirst = (length: number, value?: string | null): string | null =>
+  value == null ? null : value.slice(0, length);
+
+export const buildLoginHint = (
+  credentials: Record<string, string>,
+): IBankLoginHint => {
+  const username =
+    credentials[BANK_CREDENTIAL_FIELDS.USERNAME] ??
+    credentials[BANK_CREDENTIAL_FIELDS.USER_CODE] ??
+    credentials[BANK_CREDENTIAL_FIELDS.EMAIL];
+
+  return {
+    idLastDigits: takeLast(
+      LOGIN_HINT_LENGTHS.ID_LAST_DIGITS,
+      credentials[BANK_CREDENTIAL_FIELDS.ID],
+    ),
+    cardLastDigits: takeLast(
+      LOGIN_HINT_LENGTHS.CARD_LAST_DIGITS,
+      credentials[BANK_CREDENTIAL_FIELDS.CARD_6_DIGITS],
+    ),
+    usernamePrefix: takeFirst(LOGIN_HINT_LENGTHS.USERNAME_PREFIX, username),
+  };
+};

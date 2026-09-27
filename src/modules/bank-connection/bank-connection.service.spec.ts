@@ -113,6 +113,29 @@ describe('BankConnectionService', () => {
       expect(summary).not.toHaveProperty('encryptedCredentials');
     });
 
+    it('stores a display hint of the login alongside the cipher', async () => {
+      const repository = buildRepository();
+
+      await buildService(repository).connect('user-1', {
+        company: TBankCompany.ISRACARD,
+        credentials: {
+          id: '123456789',
+          card6Digits: '994821',
+          password: 'hunter2',
+        },
+      });
+
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          loginHint: {
+            idLastDigits: '789',
+            cardLastDigits: '4821',
+            usernamePrefix: null,
+          },
+        }),
+      );
+    });
+
     it('replaces the login of an existing connection and re-validates it', async () => {
       const existing = buildConnection({
         status: TBankConnectionStatus.INVALID_CREDENTIALS,
