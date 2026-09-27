@@ -46,12 +46,16 @@ export class TransactionService {
     userId: string,
     data: GetTransactionSummaryDto,
   ): Promise<ITransactionSummary> {
-    const rows = await this.transactionRepository.getCategorySpend(
+    const [categoryRows, chargeRows] = await Promise.all([
+      this.transactionRepository.getCategorySpend(userId, data),
+      this.transactionRepository.getSubscriptionCharges(userId, data),
+    ]);
+    const subscriptions = await this.subscriptionService.findByIds(
       userId,
-      data,
+      chargeRows.map((row) => row.subscriptionId),
     );
 
-    return toTransactionSummary(rows);
+    return toTransactionSummary({ categoryRows, chargeRows, subscriptions });
   }
 
   public async getById(id: string, userId: string): Promise<Transaction> {

@@ -28,6 +28,17 @@ export class SubscriptionRepository {
     });
   }
 
+  public findByIds(userId: string, ids: string[]): Promise<Subscription[]> {
+    if (ids.length === 0) {
+      return Promise.resolve([]);
+    }
+
+    return Subscription.findAll({
+      where: { userId, id: { [Op.in]: ids } },
+      include: [{ model: Vendor, required: false }],
+    });
+  }
+
   public async getByUser(
     userId: string,
     data: GetSubscriptionsDto,

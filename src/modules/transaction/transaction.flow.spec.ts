@@ -6,9 +6,16 @@ import { AppModule } from '../../app.module';
 import { TransactionRepository } from './transaction.repository';
 import { ProviderNames } from '@Providers/database/provider-names';
 import { ValidationPipe, type INestApplication } from '@nestjs/common';
+import { SubscriptionRepository } from '@Modules/subscription/subscription.repository';
 
 const USER_ID = 'a5f0c0de-0000-4000-8000-000000000001';
 const SEPTEMBER = { fromDate: '2026-09-01', toDate: '2026-09-30' };
+const NETFLIX = {
+  id: 'b1f0c0de-0000-4000-8000-000000000001',
+  amount: '89.80',
+  status: 'ACTIVE',
+  vendor: { name: 'Netflix', category: 'STREAMING' },
+};
 
 describe('Transaction summary flow (e2e)', () => {
   const repositoryStub = {
@@ -20,6 +27,12 @@ describe('Transaction summary flow (e2e)', () => {
         nonSubscriptionAmount: '1432.40',
       },
     ]),
+    getSubscriptionCharges: jest
+      .fn()
+      .mockResolvedValue([{ subscriptionId: NETFLIX.id, amount: '89.80' }]),
+  };
+  const subscriptionRepositoryStub = {
+    findByIds: jest.fn().mockResolvedValue([NETFLIX]),
   };
 
   let app: INestApplication;
@@ -34,6 +47,8 @@ describe('Transaction summary flow (e2e)', () => {
       .useValue({})
       .overrideProvider(TransactionRepository)
       .useValue(repositoryStub)
+      .overrideProvider(SubscriptionRepository)
+      .useValue(subscriptionRepositoryStub)
       .compile();
 
     app = moduleRef.createNestApplication();
@@ -88,8 +103,13 @@ describe('Transaction summary flow (e2e)', () => {
         USER_ID,
         SEPTEMBER,
       );
+      expect(subscriptionRepositoryStub.findByIds).toHaveBeenCalledWith(
+        USER_ID,
+        [NETFLIX.id],
+      );
       expect(response.body).toEqual({
         nonSubscriptionAmount: '1432.40',
+        subscriptionCharges: [{ amount: '89.80', subscription: NETFLIX }],
         categories: [
           { category: 'GROCERIES', amount: '1432.40' },
           { category: 'STREAMING', amount: '89.80' },

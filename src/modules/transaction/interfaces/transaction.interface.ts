@@ -55,7 +55,24 @@ export interface ICategorySpendRow extends ICategoryTotal {
   nonSubscriptionAmount: string;
 }
 
+export interface ISubscriptionChargeRow {
+  amount: string;
+  subscriptionId: string;
+}
+
+export interface ISubscriptionCharge {
+  amount: string;
+  subscription: ISubscription;
+}
+
 export interface ITransactionSummary {
   categories: ICategoryTotal[];
   nonSubscriptionAmount: string;
+  subscriptionCharges: ISubscriptionCharge[];
+}
+
+export interface ITransactionSummarySource {
+  subscriptions: ISubscription[];
+  categoryRows: ICategorySpendRow[];
+  chargeRows: ISubscriptionChargeRow[];
 }
