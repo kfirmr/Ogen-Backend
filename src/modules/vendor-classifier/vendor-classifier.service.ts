@@ -15,8 +15,8 @@ import { Inject, Injectable } from '@nestjs/common';
 import { chunkArray } from '@Utilities/array.utility';
 import { TypedLogger } from '../../logger/logger.service';
 import { AiProviderNames } from '@Providers/ai/provider-names';
-import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { hasStandingOrderMarker } from './utilities/standing-order.utility';
+import { strictZodOutputFormat } from '@Utilities/structured-output.utility';
 import { TChargeKind } from '@Modules/vendor/constants/charge-kind.constant';
 import { IVendorClassification } from './interfaces/vendor-classification.interface';
 
@@ -42,7 +42,9 @@ export class VendorClassifierService {
       max_tokens: CLASSIFICATION_MAX_TOKENS,
       system: CLASSIFICATION_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: originalDescription }],
-      output_config: { format: zodOutputFormat(VendorClassificationSchema) },
+      output_config: {
+        format: strictZodOutputFormat(VendorClassificationSchema),
+      },
     });
 
     if (response.parsed_output == null) {
@@ -105,7 +107,7 @@ export class VendorClassifierService {
       max_tokens: CLASSIFICATION_BATCH_MAX_TOKENS,
       messages: [{ role: 'user', content: JSON.stringify(chunk) }],
       output_config: {
-        format: zodOutputFormat(VendorClassificationBatchSchema),
+        format: strictZodOutputFormat(VendorClassificationBatchSchema),
       },
     });
 
