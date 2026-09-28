@@ -1,14 +1,17 @@
 import morgan from 'morgan';
 import { HttpAdapterHost } from '@nestjs/core';
+import { ValidationPipe } from '@nestjs/common';
 import { ALLOWED_HEADERS } from '@Constants/headers';
 import { DEFAULT_CLIENT_URL } from '@Constants/client';
 import { GeneralFilter } from '../filters/http-error.filter';
+import { REQUEST_BODY_LIMITS } from '@Constants/request-body';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { EnvironmentManager } from './environment-manager.utility';
 
-export const configureApp = (app: INestApplication): void => {
+export const configureApp = (app: NestExpressApplication): void => {
   app.use(morgan('combined'));
+  app.useBodyParser('json', { limit: REQUEST_BODY_LIMITS.JSON });
 
   app.enableCors({
     credentials: true,

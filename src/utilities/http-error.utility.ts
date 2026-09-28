@@ -44,6 +44,24 @@ const extractSafeResponse = (error: HttpException): TSafeResponse | null => {
   return null;
 };
 
+interface IExposedHttpError {
+  status: number;
+  message: string;
+}
+
+// Express middleware such as body-parser rejects requests with http-errors objects, flagging the
+// client-facing ones (e.g. 413 payload too large) with `expose` instead of throwing HttpException.
+const isExposedHttpError = (error: unknown): error is IExposedHttpError => {
+  if (!isObject(error)) {
+    return false;
+  }
+
+  const hasStatus = typeof error.status === 'number';
+  const isExposed = error.expose === true;
+
+  return hasStatus && isExposed && isString(error.message);
+};
+
 export const getHttpErrorResponse = (error: unknown): IHttpErrorResponse => {
   if (error && error instanceof HttpException) {
     const safeResponse = extractSafeResponse(error);
@@ -58,6 +76,10 @@ export const getHttpErrorResponse = (error: unknown): IHttpErrorResponse => {
     }
 
     return result;
+  }
+
+  if (isExposedHttpError(error)) {
+    return { statusCode: error.status, message: error.message };
   }
 
   return {
